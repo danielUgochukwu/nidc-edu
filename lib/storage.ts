@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 
-function getSupabaseConfig() {
+let supabaseInstance: ReturnType<typeof createClient> | null = null;
+
+function getSupabaseClient() {
+  if (supabaseInstance) return supabaseInstance;
+
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -8,12 +12,15 @@ function getSupabaseConfig() {
     throw new Error("Supabase environment variables are not set");
   }
 
-  return { supabaseUrl, serviceRoleKey };
+  supabaseInstance = createClient(supabaseUrl, serviceRoleKey);
+  return supabaseInstance;
 }
 
-const { supabaseUrl, serviceRoleKey } = getSupabaseConfig();
-
-export const supabase = createClient(supabaseUrl, serviceRoleKey);
+export const supabase = new Proxy({} as any, {
+  get(_, prop) {
+    return Reflect.get(getSupabaseClient(), prop);
+  },
+}) as ReturnType<typeof createClient>;
 
 export type StorageBucket =
   | "application-attachments"

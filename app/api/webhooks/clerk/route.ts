@@ -9,6 +9,10 @@ type ClerkUnsafeMetadata = {
   inviteToken?: string;
 };
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
 export async function POST(req: Request) {
   try {
     const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
@@ -58,6 +62,13 @@ export async function POST(req: Request) {
       return new Response("Missing required user data", { status: 400 });
     }
 
+    const existingUser = await prisma.user.findUnique({
+      where: { clerkId },
+    });
+    if (existingUser) {
+      return new Response("User already processed", { status: 200 });
+    }
+
     let resolvedRole: Role = "applicant";
     const inviteToken = (unsafeMetadata as ClerkUnsafeMetadata | undefined)
       ?.inviteToken;
@@ -68,6 +79,7 @@ export async function POST(req: Request) {
           where: { token: inviteToken },
           select: {
             id: true,
+            email: true,
             role: true,
             status: true,
             expiresAt: true,
@@ -75,19 +87,27 @@ export async function POST(req: Request) {
         })
       : null;
 
-    if (invite && invite.status === "pending" && invite.expiresAt > now) {
-      resolvedRole = invite.role;
-    }
-
-    await setUserRole(clerkId, resolvedRole);
-
     try {
-      await prisma.$transaction(async (tx) => {
-        if (invite && invite.status === "pending" && invite.expiresAt > now) {
-          await tx.invite.update({
-            where: { id: invite.id },
+      resolvedRole = await prisma.$transaction(async (tx) => {
+        let transactionRole: Role = "applicant";
+        let inviteAccepted = false;
+        const inviteEmailMatches =
+          invite && normalizeEmail(invite.email) === normalizeEmail(email);
+
+        if (invite && inviteEmailMatches) {
+          const consumedInvite = await tx.invite.updateMany({
+            where: {
+              id: invite.id,
+              status: "pending",
+              expiresAt: { gt: now },
+            },
             data: { status: "accepted" },
           });
+
+          if (consumedInvite.count === 1) {
+            transactionRole = invite.role;
+            inviteAccepted = true;
+          }
         }
 
         await tx.user.create({
@@ -96,7 +116,7 @@ export async function POST(req: Request) {
             email,
             firstName: firstName ?? null,
             lastName: lastName ?? null,
-            role: resolvedRole,
+            role: transactionRole,
           },
         });
 
@@ -107,16 +127,20 @@ export async function POST(req: Request) {
             targetType: "User",
             targetId: clerkId,
             metadata: {
-              role: resolvedRole,
-              source: inviteToken ? "invite" : "public_registration",
+              role: transactionRole,
+              source: inviteAccepted ? "invite" : "public_registration",
             },
           },
         });
+
+        return transactionRole;
       });
     } catch (error) {
       console.error("[POST /api/webhooks/clerk] database write failed", error);
       return new Response("Internal server error", { status: 500 });
     }
+
+    await setUserRole(clerkId, resolvedRole);
 
     return new Response("User created successfully", { status: 200 });
   } catch (error) {

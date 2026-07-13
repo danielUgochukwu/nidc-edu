@@ -1,6 +1,16 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
-export const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY ?? "";
+function getPaystackSecretKey() {
+  const secretKey = process.env.PAYSTACK_SECRET_KEY?.trim();
+
+  if (!secretKey) {
+    throw new Error("PAYSTACK_SECRET_KEY environment variable is not set");
+  }
+
+  return secretKey;
+}
+
+export const PAYSTACK_SECRET_KEY = getPaystackSecretKey();
 
 export function verifyPaystackSignature(
   payload: string,
@@ -9,6 +19,12 @@ export function verifyPaystackSignature(
   const hash = createHmac("sha512", PAYSTACK_SECRET_KEY)
     .update(payload)
     .digest("hex");
+  const expectedSignature = Buffer.from(hash, "hex");
+  const receivedSignature = Buffer.from(signature.trim(), "hex");
 
-  return hash === signature;
+  if (receivedSignature.length !== expectedSignature.length) {
+    return false;
+  }
+
+  return timingSafeEqual(receivedSignature, expectedSignature);
 }

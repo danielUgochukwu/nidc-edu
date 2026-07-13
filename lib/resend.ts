@@ -1,16 +1,25 @@
 import { Resend } from "resend";
 
-function getResendApiKey() {
+let resendInstance: Resend | null = null;
+
+function getResendClient() {
+  if (resendInstance) return resendInstance;
+
   const apiKey = process.env.RESEND_API_KEY;
 
   if (!apiKey) {
     throw new Error("RESEND_API_KEY environment variable is not set");
   }
 
-  return apiKey;
+  resendInstance = new Resend(apiKey);
+  return resendInstance;
 }
 
-export const resend = new Resend(getResendApiKey());
+export const resend = new Proxy({} as any, {
+  get(_, prop) {
+    return Reflect.get(getResendClient(), prop);
+  },
+}) as Resend;
 
 export async function sendInviteEmail({
   to,

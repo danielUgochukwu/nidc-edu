@@ -57,51 +57,62 @@ export async function POST(req: NextRequest) {
     let inviteId: string;
     let inviteUrl: string;
 
-    try {
-      const invite = await prisma.invite.create({
-        data: {
-          email,
-          role: role as Role,
-          createdById: actor.userId,
-          expiresAt,
-        },
-        select: {
-          id: true,
-          token: true,
-        },
-      });
+       try {
+         const result = await prisma.$transaction(async (tx) => {
+           const invite = await tx.invite.create({
+             data: {
+               email,
+               role: role as Role,
+               createdById: actor.userId,
+               expiresAt,
+             },
+             select: {
+               id: true,
+               token: true,
+             },
+           });
 
-      inviteId = invite.id;
-      inviteUrl = `${appUrl}/sign-up?inviteToken=${invite.token}`;
+           await tx.auditLog.create({
+             data: {
+               actorId: actor.userId,
+               action: "invite.created",
+               targetType: "Invite",
+               targetId: invite.id,
+               metadata: { email, role },
+             },
+           });
 
-      await prisma.auditLog.create({
-        data: {
-          actorId: actor.userId,
-          action: "invite.created",
-          targetType: "Invite",
-          targetId: invite.id,
-          metadata: { email, role },
-        },
-      });
-    } catch (error) {
-      console.error("[POST /api/invites] database write failed", error);
-      return NextResponse.json(
-        {
-          error: {
-            message: "Internal server error",
-            code: "INTERNAL_ERROR",
-          },
-        },
-        { status: 500 },
-      );
-    }
+           return invite;
+         });
 
-    await sendInviteEmail({
-      to: email,
-      role,
-      inviteUrl,
-      invitedBy: "NIDC Administrator",
-    });
+         inviteId = result.id;
+         inviteUrl = `${appUrl}/sign-up?inviteToken=${result.token}`;
+       } catch (error) {
+         console.error("[POST /api/invites] database write failed", error);
+         return NextResponse.json(
+           {
+             error: {
+               message: "Internal server error",
+               code: "INTERNAL_ERROR",
+             },
+           },
+           { status: 500 },
+         );
+       }
+
+       try {
+         await sendInviteEmail({
+           to: email,
+           role,
+           inviteUrl,
+           invitedBy: "NIDC Administrator",
+         });
+       } catch (emailError) {
+         console.error(
+           "[POST /api/invites] failed to send invite email",
+           emailError,
+         );
+       }
 
     return NextResponse.json({ data: { inviteId } }, { status: 201 });
   } catch (error) {

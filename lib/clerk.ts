@@ -14,16 +14,13 @@ export async function getAuthenticatedUser() {
 
 export async function requireRole(requiredRole: Role | Role[]) {
   const user = await getAuthenticatedUser();
-
   if (!user) throw new Error("UNAUTHENTICATED");
-
   const roles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-
-  if (!user.role || !roles.includes(user.role)) {
+  const userRole = user.role;
+  if (!userRole || !roles.includes(userRole)) {
     throw new Error("UNAUTHORISED");
   }
-
-  return user;
+  return { userId: user.userId, role: userRole };
 }
 
 export async function setUserRole(clerkUserId: string, role: Role) {
