@@ -44,10 +44,16 @@ export default function ImpactPage() {
   return (
     <>
       <PublicSection className="bg-surface-secondary">
-        <SectionHeader
-          title="Building Toward Measurable Impact"
-          body="NIDC is in its early phase. The system is being built deliberately and incrementally. This page will track real outcomes as the first cohort progresses."
-        />
+        <div className="max-w-3xl">
+          <h1 className="font-heading text-5xl font-bold leading-tight text-text-primary">
+            Building Toward Measurable Impact
+          </h1>
+          <p className="mt-5 text-base leading-relaxed text-text-secondary">
+            NIDC is in its early phase. The system is being built
+            deliberately and incrementally. This page will track real
+            outcomes as the first cohort progresses.
+          </p>
+        </div>
       </PublicSection>
 
       <PublicSection className="bg-surface-primary">
