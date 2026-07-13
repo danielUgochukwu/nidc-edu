@@ -90,7 +90,7 @@ These standards apply to every file in this codebase. The AI agent building this
 - Never trust the request body or query parameters to identify the acting user. Always derive the user identity from the verified Clerk session.
 - Role checks must be explicit. Do not use a catch-all `isAdmin` check when a more specific role is required. Check for the exact role the operation demands.
 - Do not write helper functions that return a boolean and silently allow access if the check fails. Throw or return a `403` response when a role check fails — never allow the function to continue.
-- The `middleware.ts` file protects pages. It does not protect API routes. Every API route must perform its own role check independently.
+- The `proxy.ts` file protects pages. It does not protect API routes. Every API route must perform its own role check independently.
 
 ---
 

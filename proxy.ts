@@ -22,33 +22,34 @@ const publicRoutes = [
 ];
 
 const roleRouteMap: Record<string, string> = {
-  applicant: "/dashboard/applicant",
-  candidate: "/dashboard/candidate",
-  mentor: "/dashboard/mentor",
-  screening_team: "/dashboard/screening",
-  program_director: "/dashboard/program-director",
-  deputy_program_director: "/dashboard/program-director",
-  finance_officer: "/dashboard/finance",
-  administrator: "/dashboard/admin",
-  grant_officer: "/dashboard/finance",
-  donor: "/dashboard/donor",
+  applicant: "/applicant",
+  candidate: "/candidate",
+  mentor: "/mentor",
+  screening_team: "/screening",
+  program_director: "/program-director",
+  deputy_program_director: "/program-director",
+  finance_officer: "/finance",
+  administrator: "/admin",
+  grant_officer: "/finance",
+  donor: "/donor",
 };
 
 const rolePermittedPrefixes: Record<string, string[]> = {
-  applicant: ["/dashboard/applicant"],
-  candidate: ["/dashboard/candidate"],
-  mentor: ["/dashboard/mentor"],
-  screening_team: ["/dashboard/screening"],
-  program_director: ["/dashboard/program-director", "/dashboard/screening"],
-  deputy_program_director: [
-    "/dashboard/program-director",
-    "/dashboard/screening",
-  ],
-  finance_officer: ["/dashboard/finance"],
-  administrator: ["/dashboard/admin"],
-  grant_officer: ["/dashboard/finance"],
-  donor: ["/dashboard/donor"],
+  applicant: ["/applicant"],
+  candidate: ["/candidate"],
+  mentor: ["/mentor"],
+  screening_team: ["/screening"],
+  program_director: ["/program-director", "/screening"],
+  deputy_program_director: ["/program-director", "/screening"],
+  finance_officer: ["/finance"],
+  administrator: ["/admin"],
+  grant_officer: ["/finance"],
+  donor: ["/donor"],
 };
+
+const protectedRolePrefixes = Array.from(
+  new Set(Object.values(rolePermittedPrefixes).flat()),
+);
 
 function isPublicRoute(pathname: string) {
   return publicRoutes.some((route) => route.test(pathname));
@@ -56,6 +57,12 @@ function isPublicRoute(pathname: string) {
 
 function matchesRoutePrefix(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function isProtectedRoleRoute(pathname: string) {
+  return protectedRolePrefixes.some((prefix) =>
+    matchesRoutePrefix(pathname, prefix),
+  );
 }
 
 export default clerkMiddleware(async (auth, req) => {
@@ -70,11 +77,11 @@ export default clerkMiddleware(async (auth, req) => {
   const role = getRoleFromSessionClaims(sessionClaims);
 
   if (!role) {
-    if (req.nextUrl.pathname === "/dashboard/applicant") {
+    if (matchesRoutePrefix(req.nextUrl.pathname, "/applicant")) {
       return NextResponse.next();
     }
-    if (req.nextUrl.pathname.startsWith("/dashboard")) {
-      return NextResponse.redirect(new URL("/dashboard/applicant", req.url));
+    if (isProtectedRoleRoute(req.nextUrl.pathname)) {
+      return NextResponse.redirect(new URL("/applicant", req.url));
     }
     return NextResponse.next();
   }
@@ -85,7 +92,7 @@ export default clerkMiddleware(async (auth, req) => {
     matchesRoutePrefix(pathname, prefix),
   );
 
-  if (!isPermitted && pathname.startsWith("/dashboard")) {
+  if (!isPermitted && isProtectedRoleRoute(pathname)) {
     const defaultRoute = roleRouteMap[role] ?? "/unauthorised";
     return NextResponse.redirect(new URL(defaultRoute, req.url));
   }

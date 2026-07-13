@@ -47,21 +47,22 @@ When Clerk fires `user.created`:
 
 ### Route Protection
 
-All routes under `app/(dashboard)/` are protected by Clerk middleware. The middleware reads the role from `publicMetadata` and enforces the following routing rules:
+All routes under `app/(dashboard)/` are protected by Clerk middleware. The `(dashboard)` folder is a route group, so these pages resolve to root-level role routes. The middleware reads the role from `publicMetadata` and enforces the following routing rules:
 
-| Role | Permitted Dashboard Routes |
+| Role | Permitted Role Routes |
 |---|---|
-| `applicant` | `/dashboard/applicant/*` |
-| `candidate` | `/dashboard/candidate/*` |
-| `mentor` | `/dashboard/mentor/*` |
-| `screening_team` | `/dashboard/screening/*` |
-| `program_director` | `/dashboard/program-director/*`, `/dashboard/screening/*` |
-| `deputy_program_director` | `/dashboard/program-director/*`, `/dashboard/screening/*` |
-| `finance_officer` | `/dashboard/finance/*` |
-| `administrator` | `/dashboard/admin/*` |
-| `grant_officer` | `/dashboard/finance/*` |
+| `applicant` | `/applicant/*` |
+| `candidate` | `/candidate/*` |
+| `mentor` | `/mentor/*` |
+| `screening_team` | `/screening/*` |
+| `program_director` | `/program-director/*`, `/screening/*` |
+| `deputy_program_director` | `/program-director/*`, `/screening/*` |
+| `finance_officer` | `/finance/*` |
+| `administrator` | `/admin/*` |
+| `grant_officer` | `/finance/*` |
+| `donor` | `/donor/*` |
 
-Any request to a route outside a role's permitted list returns a redirect to `/unauthorised`.
+Any request to a protected role route outside a role's permitted list redirects to that user's default role route, or `/unauthorised` if the role is unknown.
 
 ---
 
@@ -172,7 +173,7 @@ npm install -D prisma
 
 ### 4. Configure Clerk
 
-**4.1** Create `middleware.ts` at the project root:
+**4.1** Create `proxy.ts` at the project root (Next.js uses proxy.ts instead of middleware.ts for route protection in this version):
 
 ```ts
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
@@ -196,29 +197,43 @@ const isPublicRoute = createRouteMatcher([
 ])
 
 const roleRouteMap: Record<string, string> = {
-  applicant: '/dashboard/applicant',
-  candidate: '/dashboard/candidate',
-  mentor: '/dashboard/mentor',
-  screening_team: '/dashboard/screening',
-  program_director: '/dashboard/program-director',
-  deputy_program_director: '/dashboard/program-director',
-  finance_officer: '/dashboard/finance',
-  administrator: '/dashboard/admin',
-  grant_officer: '/dashboard/finance',
-  donor: '/dashboard/donor',
+  applicant: '/applicant',
+  candidate: '/candidate',
+  mentor: '/mentor',
+  screening_team: '/screening',
+  program_director: '/program-director',
+  deputy_program_director: '/program-director',
+  finance_officer: '/finance',
+  administrator: '/admin',
+  grant_officer: '/finance',
+  donor: '/donor',
 }
 
 const rolePermittedPrefixes: Record<string, string[]> = {
-  applicant: ['/dashboard/applicant'],
-  candidate: ['/dashboard/candidate'],
-  mentor: ['/dashboard/mentor'],
-  screening_team: ['/dashboard/screening'],
-  program_director: ['/dashboard/program-director', '/dashboard/screening'],
-  deputy_program_director: ['/dashboard/program-director', '/dashboard/screening'],
-  finance_officer: ['/dashboard/finance'],
-  administrator: ['/dashboard/admin'],
-  grant_officer: ['/dashboard/finance'],
-  donor: ['/dashboard/donor'],
+  applicant: ['/applicant'],
+  candidate: ['/candidate'],
+  mentor: ['/mentor'],
+  screening_team: ['/screening'],
+  program_director: ['/program-director', '/screening'],
+  deputy_program_director: ['/program-director', '/screening'],
+  finance_officer: ['/finance'],
+  administrator: ['/admin'],
+  grant_officer: ['/finance'],
+  donor: ['/donor'],
+}
+
+const protectedRolePrefixes = Array.from(
+  new Set(Object.values(rolePermittedPrefixes).flat()),
+)
+
+function matchesRoutePrefix(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`)
+}
+
+function isProtectedRoleRoute(pathname: string) {
+  return protectedRolePrefixes.some((prefix) =>
+    matchesRoutePrefix(pathname, prefix),
+  )
 }
 
 export default clerkMiddleware(async (auth, req) => {
@@ -238,9 +253,11 @@ export default clerkMiddleware(async (auth, req) => {
 
   const pathname = req.nextUrl.pathname
   const permitted = rolePermittedPrefixes[role] ?? []
-  const isPermitted = permitted.some((prefix) => pathname.startsWith(prefix))
+  const isPermitted = permitted.some((prefix) =>
+    matchesRoutePrefix(pathname, prefix),
+  )
 
-  if (!isPermitted && pathname.startsWith('/dashboard')) {
+  if (!isPermitted && isProtectedRoleRoute(pathname)) {
     const defaultRoute = roleRouteMap[role] ?? '/unauthorised'
     return NextResponse.redirect(new URL(defaultRoute, req.url))
   }
@@ -845,8 +862,8 @@ CLERK_SECRET_KEY=
 CLERK_WEBHOOK_SECRET=
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
-NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/dashboard
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/applicant
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/applicant
 
 # Database
 DATABASE_URL=
@@ -908,10 +925,10 @@ Before marking this spec complete and moving to Feature Spec 02, verify every it
 - [ ] The `User` record is created in PostgreSQL on every successful signup with the correct role mirrored
 
 ### Route Protection
-- [ ] Visiting `/dashboard/applicant` without a session redirects to `/sign-in`
-- [ ] A signed-in user with the `applicant` role can access `/dashboard/applicant`
-- [ ] A signed-in user with the `applicant` role is redirected away from `/dashboard/screening`
-- [ ] A signed-in user with the `administrator` role can access `/dashboard/admin`
+- [ ] Visiting `/applicant` without a session redirects to `/sign-in`
+- [ ] A signed-in user with the `applicant` role can access `/applicant`
+- [ ] A signed-in user with the `applicant` role is redirected away from `/screening`
+- [ ] A signed-in user with the `administrator` role can access `/admin`
 - [ ] The `/unauthorised` page renders correctly
 
 ### Webhook Security

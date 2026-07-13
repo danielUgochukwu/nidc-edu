@@ -41,7 +41,7 @@ If a change cannot be verified end to end quickly, the scope is too broad — sp
 Do not modify the following unless explicitly instructed:
 
 - `prisma/migrations/*` — migration files are immutable after they have been applied. Create a new migration instead of editing an existing one.
-- `middleware.ts` — controls all route protection and role-based routing for the entire platform. Changes here affect every protected page.
+- `proxy.ts` — controls all route protection and role-based routing for the entire platform. Changes here affect every protected page.
 - `lib/prisma.ts` — the Prisma client singleton. Do not modify client configuration without a documented reason.
 - `lib/clerk.ts` — role-check helpers. Do not add shortcuts or convenience wrappers that bypass the role verification logic in `architecture.md`.
 - `components/ui/*` — base UI primitives. Compose from them. Do not modify their props interface, internal logic, or styling for a specific feature.

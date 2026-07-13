@@ -337,7 +337,7 @@ export const metadata = {
 
 **Application CTA**
 - Title: "If this aligns with how you think — apply."
-- Primary button: "Apply Now" — links to `/sign-up` if user is not authenticated, links to `/dashboard/applicant` if authenticated
+- Primary button: "Apply Now" — links to `/sign-up` if user is not authenticated, links to `/applicant` if authenticated
 - Secondary button: "Learn More" — links to `/programs`
 - Note below buttons: "Supporting documents such as academic records or certificates are not required at this stage. They will only be requested from shortlisted applicants during the review process."
 
