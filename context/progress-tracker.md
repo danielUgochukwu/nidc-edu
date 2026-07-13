@@ -1,0 +1,238 @@
+# NIDC Platform — Progress Tracker
+
+This file is the single source of truth for build progress. It must be read at the start of every session and updated at the end of every session. No unit of work is considered complete until it is marked done here.
+
+---
+
+## Current Status
+
+**Active Phase:** Phase 1 — Foundation  
+**Current Unit:** External setup — Supabase migration and Vercel deployment  
+**Last Updated:** 2026-07-13  
+**Build Status:** `npm run build` passes locally with required environment variables; `npx prisma validate` passes via `prisma.config.ts` loading `.env.local`; migration status still needs live DB verification  
+
+---
+
+## Phase Overview
+
+| Phase | Name | Status |
+|---|---|---|
+| 1 | Foundation | In progress — local implementation complete; external provisioning pending |
+| 2 | Public Facing Pages | Not started |
+| 3 | Application System | Not started |
+| 4 | Screening Workflow | Not started |
+| 5 | Interview Management | Not started |
+| 6 | Candidate Dashboard | Not started |
+| 7 | Mentorship System | Not started |
+| 8 | Donation and Funding | Not started |
+| 9 | Admin and Governance | Not started |
+
+---
+
+## Phase 1 — Foundation
+
+**Goal:** Get the core infrastructure in place. Every subsequent phase depends on this being correct and stable.
+
+| Unit | Description | Status |
+|---|---|---|
+| 1.1 | Initialise Next.js project with TypeScript and App Router | Done |
+| 1.2 | Configure `tsconfig.json` with strict mode enabled | Done |
+| 1.3 | Install and configure Tailwind CSS | Done |
+| 1.4 | Extend Tailwind config with NIDC colour tokens and design scale | Done |
+| 1.5 | Install and configure Clerk — proxy, provider, environment variables | Done |
+| 1.6 | Create Clerk webhook handler at `app/api/webhooks/clerk/route.ts` — creates User record and assigns invite role or `applicant` role on `user.created` | Done |
+| 1.7 | Set up Supabase project — provision PostgreSQL database and Storage buckets | Pending Storage bucket confirmation |
+| 1.8 | Install Prisma, initialise schema, connect to Supabase PostgreSQL via connection string | Done locally; Prisma CLI loads `.env.local` via `prisma.config.ts` |
+| 1.9 | Define Phase 1 core Prisma models — `User`, `Organization`, `OrganizationMember`, `Invite`, `AuditLog` | Done |
+| 1.10 | Run first migration and verify it applies cleanly | Needs verification — migration file exists, but `npx prisma migrate status` returned a schema engine error via `DIRECT_URL` |
+| 1.11 | Create `lib/prisma.ts` — Prisma client singleton with AuditLog append-only query extension | Done |
+| 1.12 | Create `lib/clerk.ts` — server-side role check helpers | Done |
+| 1.13 | Create `lib/storage.ts` — Supabase Storage client, upload helpers, signed URL generation | Done |
+| 1.14 | Create `lib/resend.ts` — Resend client initialisation | Done |
+| 1.15 | Create `lib/paystack.ts` — Paystack signature helper placeholder | Done |
+| 1.16 | Create `lib/escalation.ts` — placeholder file, escalation logic implemented in Phase 4 | Done |
+| 1.17 | Configure `.env.example` with all environment variables introduced in Phase 1 | Done |
+| 1.18 | Deploy shell application to Vercel — confirm build passes and environment variables are set | Blocked — Vercel project access and production env values required |
+
+---
+
+## Phase 2 — Public Facing Pages
+
+**Goal:** Build all ten public-facing pages. No authentication required. Every page must have a metadata export.
+
+| Unit | Description | Status |
+|---|---|---|
+| 2.1 | Build shared navigation and footer components | Not started |
+| 2.2 | Home page — NIDC overview, CTA to apply | Not started |
+| 2.3 | About page — mission, vision, origin story | Not started |
+| 2.4 | Programs page — Educational Pathway and Direct Development Track explained | Not started |
+| 2.5 | Sectors page — Energy, Manufacturing and Industrial Systems, Digital Infrastructure | Not started |
+| 2.6 | Apply page — eligibility criteria, cohort status, application window, CTA | Not started |
+| 2.7 | Donate page — funding model, impact summary, Paystack donation CTA | Not started |
+| 2.8 | Impact page — public metrics, candidates in pipeline, cohorts completed | Not started |
+| 2.9 | Contact page — contact form | Not started |
+| 2.10 | FAQs page — common candidate and donor questions | Not started |
+| 2.11 | Blog page — cohort announcements and updates index | Not started |
+| 2.12 | Verify all pages are responsive at 375px, 768px, and 1280px | Not started |
+
+---
+
+## Phase 3 — Application System
+
+**Goal:** A candidate can land on the site, create an account, complete and submit a saveable application form including the diagnostic assessment, and receive confirmation.
+
+| Unit | Description | Status |
+|---|---|---|
+| 3.1 | Add `Application`, `AssessmentQuestion`, `AssessmentResponse` Prisma models and migrate | Not started |
+| 3.2 | Build cohort management — open and close application windows | Not started |
+| 3.3 | Build application form shell — multi-step, saveable, resumable | Not started |
+| 3.4 | Build diagnostic assessment step within application form | Not started |
+| 3.5 | Build pipeline assignment logic — Educational Pathway or Direct Development Track based on assessment result | Not started |
+| 3.6 | Build borderline result flagging — routes to screening team manual review | Not started |
+| 3.7 | Build application submission — sets status to submitted, locks `pipelineTrack` field | Not started |
+| 3.8 | Build `POST /api/applications` — creates or updates application record | Not started |
+| 3.9 | Build `GET /api/applications/[id]` — retrieves application for resuming | Not started |
+| 3.10 | Build applicant-facing submission confirmation state | Not started |
+
+---
+
+## Phase 4 — Screening Workflow
+
+**Goal:** The screening team can review submitted applications, cast consensus votes, and unresolved decisions escalate automatically after 48 hours.
+
+| Unit | Description | Status |
+|---|---|---|
+| 4.1 | Add `ScreeningVote`, `EscalationRecord` Prisma models and migrate | Not started |
+| 4.2 | Build `POST /api/screening/vote` — validates role, writes vote, checks consensus | Not started |
+| 4.3 | Build `GET /api/screening/votes/[applicationId]` — returns all votes for an application | Not started |
+| 4.4 | Build escalation logic in `lib/escalation.ts` — 48-hour check, Program Director routing, Deputy fallback | Not started |
+| 4.5 | Build `POST /api/cron/escalation-check` — cron endpoint, protected by `CRON_SECRET` | Not started |
+| 4.6 | Build `POST /api/cron/deputy-escalation` — 24-hour deputy fallback cron endpoint | Not started |
+| 4.7 | Configure Vercel Cron Jobs for escalation-check and deputy-escalation | Not started |
+| 4.8 | Build screening team dashboard — application queue, review interface | Not started |
+| 4.9 | Build consensus vote UI component | Not started |
+| 4.10 | Build shortlist management interface | Not started |
+| 4.11 | Build `Notification` and `AuditLog` Prisma models and migrate | Not started |
+| 4.12 | Build rejection notification dispatch — Resend email and in-platform notification | Not started |
+| 4.13 | Build escalation notification dispatch — Resend email and in-platform notification to Program Director | Not started |
+
+---
+
+## Phase 5 — Interview Management
+
+**Goal:** Shortlisted candidates receive an interview link and automated reminders. Outcomes are recorded and candidates are notified.
+
+| Unit | Description | Status |
+|---|---|---|
+| 5.1 | Add `Interview`, `InterviewOutcome` Prisma models and migrate | Not started |
+| 5.2 | Build `POST /api/interviews` — screening team inputs interview link and scheduled time | Not started |
+| 5.3 | Build interview link distribution — sends Resend email and in-platform notification to all shortlisted candidates | Not started |
+| 5.4 | Build `POST /api/cron/interview-reminders` — sends reminders 24 hours and 1 hour before interview | Not started |
+| 5.5 | Configure Vercel Cron Job for interview-reminders | Not started |
+| 5.6 | Build `POST /api/interviews/[id]/outcome` — records pass or fail per candidate | Not started |
+| 5.7 | Build post-interview notification dispatch — Resend email and in-platform notification for pass and fail outcomes | Not started |
+| 5.8 | Build interview management UI for screening team — link input, candidate list, outcome recording | Not started |
+
+---
+
+## Phase 6 — Candidate Dashboard
+
+**Goal:** Accepted candidates can log in and view their pipeline track, current stage, milestones, documents, and notifications.
+
+| Unit | Description | Status |
+|---|---|---|
+| 6.1 | Build role upgrade logic — sets Clerk `publicMetadata` role to `candidate` on interview acceptance | Not started |
+| 6.2 | Build candidate dashboard layout and shell | Not started |
+| 6.3 | Build pipeline track and current stage display | Not started |
+| 6.4 | Build milestone tracking component | Not started |
+| 6.5 | Build documents and resources section — signed URLs from Supabase Storage | Not started |
+| 6.6 | Build notifications centre — reads from `Notification` table, marks as read | Not started |
+
+---
+
+## Phase 7 — Mentorship System
+
+**Goal:** Accepted candidates are matched with mentors. Both parties can log sessions and track milestones on the platform.
+
+| Unit | Description | Status |
+|---|---|---|
+| 7.1 | Add `MentorProfile`, `MentorMatch`, `MentorSession`, `MentorMilestone` Prisma models and migrate | Not started |
+| 7.2 | Build mentor registration flow — creates MentorProfile, assigns `mentor` role via Clerk | Not started |
+| 7.3 | Build mentor profile page — sector, background, availability | Not started |
+| 7.4 | Build mentor-candidate matching interface for administrators and screening team | Not started |
+| 7.5 | Build `POST /api/mentorship/match` — creates MentorMatch record | Not started |
+| 7.6 | Build `POST /api/mentorship/sessions` — logs a session, accessible to mentor and candidate | Not started |
+| 7.7 | Build milestone tracking — create, update, and complete milestones against a match | Not started |
+| 7.8 | Build mentor dashboard — assigned candidates, session history, milestone status | Not started |
+| 7.9 | Build candidate mentorship dashboard — mentor profile, session history, milestone status | Not started |
+
+---
+
+## Phase 8 — Donation and Funding
+
+**Goal:** Local Nigerian donors can make Naira donations via Paystack and receive receipts. Finance Officer can manage grants and record expenditures.
+
+| Unit | Description | Status |
+|---|---|---|
+| 8.1 | Add `Donation`, `Grant`, `GrantMilestone`, `Expenditure` Prisma models and migrate | Not started |
+| 8.2 | Build `POST /api/donations/initiate` — creates Paystack transaction, stores pending reference | Not started |
+| 8.3 | Build Paystack webhook handler at `app/api/webhooks/paystack/route.ts` — verifies signature, writes Donation record on `charge.success` | Not started |
+| 8.4 | Build donation receipt dispatch — Resend email sent after webhook confirmation | Not started |
+| 8.5 | Build donor dashboard — donation history, impact metrics | Not started |
+| 8.6 | Build grant management interface for Finance Officer — create grant, add milestones, upload documentation to Supabase Storage | Not started |
+| 8.7 | Build expenditure entry interface for Finance Officer — record expenditure, attach receipt via Supabase Storage | Not started |
+| 8.8 | Build financial report generation for Finance Officer | Not started |
+| 8.9 | Build public impact metrics on Donate and Impact pages — reads aggregate data from database | Not started |
+
+---
+
+## Phase 9 — Admin and Governance
+
+**Goal:** Administrators can manage users, roles, cohorts, and audit trails. The platform is fully operational end to end.
+
+| Unit | Description | Status |
+|---|---|---|
+| 9.1 | Build administrator dashboard shell | Not started |
+| 9.2 | Build user management — list users, assign roles, revoke roles | Not started |
+| 9.3 | Build Deputy Program Director assignment interface — Program Director assigns and reassigns the role | Not started |
+| 9.4 | Build cohort management — create cohorts, open and close application windows, view cohort records | Not started |
+| 9.5 | Build audit trail viewer — read-only log of all screening decisions, role changes, and financial entries | Not started |
+| 9.6 | Build platform-wide settings interface | Not started |
+| 9.7 | Run full end-to-end verification against all twelve success criteria in `project-overview.md` | Not started |
+| 9.8 | Confirm `npm run build` passes with zero errors on production build | Not started |
+| 9.9 | Confirm all environment variables are set correctly in Vercel production environment | Not started |
+
+---
+
+## Open Questions
+
+Questions that surfaced during the build and require a decision before the relevant unit can be completed. Add questions here rather than making silent assumptions.
+
+| # | Question | Phase/Unit Blocked | Raised | Resolved |
+|---|---|---|---|---|
+| 1 | Feature Spec 01 defines `grant_officer` as the ninth role, while `project-overview.md` and `architecture.md` define `donor` as the ninth role. Which role set should implementation use? | Phase 1 / Feature Spec 01 | 2026-07-12 | Yes — use ten roles: both `donor` and `grant_officer` are valid |
+| 2 | Provide the live Supabase `DATABASE_URL`, confirm the five Storage buckets exist, and provide Vercel project access/environment values so Phase 1 external setup can be completed. | Phase 1 / Units 1.7, 1.10, 1.18 | 2026-07-12 | Partially — local Supabase environment values provided; Storage bucket confirmation and Vercel access/env still pending |
+| 3 | Add a `DIRECT_URL` using Supabase direct connection or session pooler so Prisma Migrate does not run through the transaction pooler. | Phase 1 / Unit 1.10 | 2026-07-13 | Yes — `DIRECT_URL` is present locally |
+| 4 | Confirm whether the live Supabase database has applied migration `20260713000029_init_identity_auth_rbac`, or replace `DIRECT_URL` with a Supabase direct non-pooler connection if the session pooler keeps failing. | Phase 1 / Unit 1.10 | 2026-07-13 | No |
+
+---
+
+## Decisions Log
+
+Decisions made during the build that are not captured in the main spec files. Record them here to avoid relitigating them in future sessions.
+
+| # | Decision | Reason | Session |
+|---|---|---|---|
+| 1 | Implement identity/auth/RBAC with ten roles: `applicant`, `candidate`, `mentor`, `screening_team`, `program_director`, `deputy_program_director`, `finance_officer`, `administrator`, `grant_officer`, and `donor`. | Grace confirmed both `donor` and `grant_officer` are valid roles and updated the context files. | 2026-07-12 |
+| 2 | Use `proxy.ts` rather than `middleware.ts` for Clerk route protection. | The project is on Next.js 16, and the Next.js docs rename Middleware to Proxy while preserving this route-protection use case. | 2026-07-12 |
+| 3 | Enforce `AuditLog` append-only behavior with a Prisma query extension rather than `$use` middleware. | The generated Prisma 6.19.3 client in this project does not expose `$use`; the query extension rejects `update`, `updateMany`, `upsert`, `delete`, and `deleteMany` for `AuditLog`. | 2026-07-12 |
+| 4 | Add `prisma.config.ts` to load `.env.local` before Prisma CLI commands. | Prisma CLI does not load Next.js `.env.local` by default, which caused `DATABASE_URL` to be missing during schema validation. | 2026-07-13 |
+| 5 | Configure Prisma CLI to prefer `DIRECT_URL` for migrations while keeping `DATABASE_URL` for runtime traffic. | Prisma Migrate cannot run reliably through Supabase transaction pooling and failed with prepared statement `s1` already exists. | 2026-07-13 |
+
+---
+
+## Notes for Next Session
+
+_Update this section at the end of every session. Describe exactly where you stopped, what was left incomplete, and what the next action is._
+
+Local Phase 1 identity/auth/RBAC implementation is complete with ten roles. `prisma.config.ts` loads `.env.local` and prefers `DIRECT_URL` for Prisma CLI migrations. A migration folder now exists at `prisma/migrations/20260713000029_init_identity_auth_rbac`, but `npx prisma migrate status` returned a schema engine error when checking the live database through `DIRECT_URL`. The next action is to verify whether that migration actually applied in Supabase, or update `DIRECT_URL` to a direct non-pooler connection and rerun Prisma migration/status commands. After migration verification, confirm the five Supabase Storage buckets, deploy to Vercel, set Vercel environment variables, and register the Clerk webhook URL.
