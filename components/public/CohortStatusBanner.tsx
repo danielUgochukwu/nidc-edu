@@ -14,7 +14,7 @@ type ActiveCohortResponse = {
 };
 
 export default function CohortStatusBanner() {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState<boolean | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -22,7 +22,10 @@ export default function CohortStatusBanner() {
     async function loadCohortStatus() {
       try {
         const response = await fetch("/api/cohorts/active");
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (isMounted) setIsOpen(false);
+          return;
+        }
         const payload = (await response.json()) as ActiveCohortResponse;
         if (isMounted) setIsOpen(Boolean(payload.data?.isOpen));
       } catch {
@@ -36,6 +39,12 @@ export default function CohortStatusBanner() {
       isMounted = false;
     };
   }, []);
+
+  if (isOpen === null) {
+    return (
+      <div className="animate-pulse rounded-md bg-surface-secondary p-5 min-h-15" />
+    );
+  }
 
   return (
     <div

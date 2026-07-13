@@ -3,11 +3,22 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
+    const now = new Date();
     const activeCohort = await prisma.cohort.findFirst({
       where: {
         status: "open",
-        applicationWindowOpen: { lte: new Date() },
-        applicationWindowClose: { gte: new Date() },
+        OR: [
+          { applicationWindowOpen: null },
+          { applicationWindowOpen: { lte: now } },
+        ],
+        AND: [
+          {
+            OR: [
+              { applicationWindowClose: null },
+              { applicationWindowClose: { gte: now } },
+            ],
+          },
+        ],
       },
       select: { id: true, name: true, applicationWindowClose: true },
     });

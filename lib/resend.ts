@@ -18,8 +18,10 @@ function getResendClient() {
 const resendProxyTarget = {} as Resend;
 
 export const resend = new Proxy(resendProxyTarget, {
-  get(_, prop, receiver) {
-    return Reflect.get(getResendClient(), prop, receiver);
+  get(_, prop) {
+    const client = getResendClient();
+    const value = Reflect.get(client, prop);
+    return typeof value === "function" ? value.bind(client) : value;
   },
 });
 

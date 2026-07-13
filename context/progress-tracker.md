@@ -67,7 +67,7 @@ This file is the single source of truth for build progress. It must be read at t
 | 2.3 | About page — mission, vision, origin story | Done |
 | 2.4 | Programs page — Educational Pathway and Direct Development Track explained | Done |
 | 2.5 | Sectors page — Energy, Manufacturing and Industrial Systems, Digital Infrastructure | Done |
-| 2.6 | Apply page — eligibility criteria, cohort status, application window, CTA | Done locally — cohort status API requires unapplied Cohort migration |
+| 2.6 | Apply page — eligibility criteria, cohort status, application window, CTA | Pending / blocked — page UI exists, but release verification requires the Cohort migration to be applied and `GET /api/cohorts/active` to return a healthy cohort status for the existing application-window scope |
 | 2.7 | Donate page — funding model, impact summary, Paystack donation CTA | Done |
 | 2.8 | Impact page — public metrics, candidates in pipeline, cohorts completed | Done |
 | 2.9 | Contact page — contact form | Done — invalid request path verified; live Resend send not exercised to avoid sending a real email |
