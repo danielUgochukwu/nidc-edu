@@ -1,5 +1,6 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { getRoleFromSessionClaims } from "@/lib/auth-claims";
 
 const publicRoutes = [
   /^\/$/,
@@ -15,6 +16,8 @@ const publicRoutes = [
   /^\/sign-in(?:\/.*)?$/,
   /^\/sign-up(?:\/.*)?$/,
   /^\/unauthorised$/,
+  /^\/api\/contact$/,
+  /^\/api\/cohorts\/active$/,
   /^\/api\/webhooks(?:\/.*)?$/,
 ];
 
@@ -64,7 +67,7 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(new URL("/sign-in", req.url));
   }
 
-  const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role;
+  const role = getRoleFromSessionClaims(sessionClaims);
 
   if (!role) {
     return NextResponse.redirect(new URL("/unauthorised", req.url));

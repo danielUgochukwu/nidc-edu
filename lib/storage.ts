@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
-let supabaseInstance: ReturnType<typeof createClient> | null = null;
+type SupabaseClient = ReturnType<typeof createClient>;
+
+let supabaseInstance: SupabaseClient | null = null;
 
 function getSupabaseClient() {
   if (supabaseInstance) return supabaseInstance;
@@ -16,11 +18,15 @@ function getSupabaseClient() {
   return supabaseInstance;
 }
 
-export const supabase = new Proxy({} as any, {
+const supabaseProxyTarget = {} as SupabaseClient;
+
+export const supabase = new Proxy(supabaseProxyTarget, {
   get(_, prop) {
-    return Reflect.get(getSupabaseClient(), prop);
+    const client = getSupabaseClient();
+    const value = Reflect.get(client, prop);
+    return typeof value === "function" ? value.bind(client) : value;
   },
-}) as ReturnType<typeof createClient>;
+});
 
 export type StorageBucket =
   | "application-attachments"

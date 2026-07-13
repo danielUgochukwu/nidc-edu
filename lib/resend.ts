@@ -15,11 +15,15 @@ function getResendClient() {
   return resendInstance;
 }
 
-export const resend = new Proxy({} as any, {
+const resendProxyTarget = {} as Resend;
+
+export const resend = new Proxy(resendProxyTarget, {
   get(_, prop) {
-    return Reflect.get(getResendClient(), prop);
+    const client = getResendClient();
+    const value = Reflect.get(client, prop);
+    return typeof value === "function" ? value.bind(client) : value;
   },
-}) as Resend;
+});
 
 export async function sendInviteEmail({
   to,

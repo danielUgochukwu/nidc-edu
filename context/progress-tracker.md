@@ -6,10 +6,10 @@ This file is the single source of truth for build progress. It must be read at t
 
 ## Current Status
 
-**Active Phase:** Phase 1 — Foundation  
-**Current Unit:** External setup — Supabase migration and Vercel deployment  
+**Active Phase:** Phase 2 — Public Facing Pages  
+**Current Unit:** Verification — apply Cohort migration and complete visual breakpoint QA  
 **Last Updated:** 2026-07-13  
-**Build Status:** `npm run build` passes locally with required environment variables; `npx prisma validate` passes via `prisma.config.ts` loading `.env.local`; migration status still needs live DB verification  
+**Build Status:** `npx prisma validate`, `npm run lint`, and `npm run build` pass; Phase 2 pages render with HTTP 200 locally; `npx prisma migrate dev --name add_cohort_model` still fails with Prisma schema engine error through the configured Supabase pooler, so `GET /api/cohorts/active` returns 500 until the Cohort migration is applied  
 
 ---
 
@@ -18,7 +18,7 @@ This file is the single source of truth for build progress. It must be read at t
 | Phase | Name | Status |
 |---|---|---|
 | 1 | Foundation | In progress — local implementation complete; external provisioning pending |
-| 2 | Public Facing Pages | Not started |
+| 2 | Public Facing Pages | In progress — local implementation complete; Cohort migration application and visual breakpoint QA pending |
 | 3 | Application System | Not started |
 | 4 | Screening Workflow | Not started |
 | 5 | Interview Management | Not started |
@@ -52,7 +52,7 @@ This file is the single source of truth for build progress. It must be read at t
 | 1.15 | Create `lib/paystack.ts` — Paystack signature helper placeholder | Done |
 | 1.16 | Create `lib/escalation.ts` — placeholder file, escalation logic implemented in Phase 4 | Done |
 | 1.17 | Configure `.env.example` with all environment variables introduced in Phase 1 | Done |
-| 1.18 | Deploy shell application to Vercel — confirm build passes and environment variables are set | Blocked — Vercel project access and production env values required |
+| 1.18 | Deploy shell application to Vercel — confirm build passes and environment variables are set | Done — deployed successfully on Vercel |
 
 ---
 
@@ -62,18 +62,18 @@ This file is the single source of truth for build progress. It must be read at t
 
 | Unit | Description | Status |
 |---|---|---|
-| 2.1 | Build shared navigation and footer components | Not started |
-| 2.2 | Home page — NIDC overview, CTA to apply | Not started |
-| 2.3 | About page — mission, vision, origin story | Not started |
-| 2.4 | Programs page — Educational Pathway and Direct Development Track explained | Not started |
-| 2.5 | Sectors page — Energy, Manufacturing and Industrial Systems, Digital Infrastructure | Not started |
-| 2.6 | Apply page — eligibility criteria, cohort status, application window, CTA | Not started |
-| 2.7 | Donate page — funding model, impact summary, Paystack donation CTA | Not started |
-| 2.8 | Impact page — public metrics, candidates in pipeline, cohorts completed | Not started |
-| 2.9 | Contact page — contact form | Not started |
-| 2.10 | FAQs page — common candidate and donor questions | Not started |
-| 2.11 | Blog page — cohort announcements and updates index | Not started |
-| 2.12 | Verify all pages are responsive at 375px, 768px, and 1280px | Not started |
+| 2.1 | Build shared navigation and footer components | Done |
+| 2.2 | Home page — NIDC overview, CTA to apply | Done |
+| 2.3 | About page — mission, vision, origin story | Done |
+| 2.4 | Programs page — Educational Pathway and Direct Development Track explained | Done |
+| 2.5 | Sectors page — Energy, Manufacturing and Industrial Systems, Digital Infrastructure | Done |
+| 2.6 | Apply page — eligibility criteria, cohort status, application window, CTA | Pending / blocked — page UI exists, but release verification requires the Cohort migration to be applied and `GET /api/cohorts/active` to return a healthy cohort status for the existing application-window scope |
+| 2.7 | Donate page — funding model, impact summary, Paystack donation CTA | Done |
+| 2.8 | Impact page — public metrics, candidates in pipeline, cohorts completed | Done |
+| 2.9 | Contact page — contact form | Done — invalid request path verified; live Resend send not exercised to avoid sending a real email |
+| 2.10 | FAQs page — common candidate and donor questions | Done |
+| 2.11 | Blog page — cohort announcements and updates index | Done |
+| 2.12 | Verify all pages are responsive at 375px, 768px, and 1280px | Pending browser visual QA — all public routes return HTTP 200 locally |
 
 ---
 
@@ -211,9 +211,12 @@ Questions that surfaced during the build and require a decision before the relev
 | # | Question | Phase/Unit Blocked | Raised | Resolved |
 |---|---|---|---|---|
 | 1 | Feature Spec 01 defines `grant_officer` as the ninth role, while `project-overview.md` and `architecture.md` define `donor` as the ninth role. Which role set should implementation use? | Phase 1 / Feature Spec 01 | 2026-07-12 | Yes — use ten roles: both `donor` and `grant_officer` are valid |
-| 2 | Provide the live Supabase `DATABASE_URL`, confirm the five Storage buckets exist, and provide Vercel project access/environment values so Phase 1 external setup can be completed. | Phase 1 / Units 1.7, 1.10, 1.18 | 2026-07-12 | Partially — local Supabase environment values provided; Storage bucket confirmation and Vercel access/env still pending |
+| 2 | Provide the live Supabase `DATABASE_URL`, confirm the five Storage buckets exist, and provide Vercel project access/environment values so Phase 1 external setup can be completed. | Phase 1 / Units 1.7, 1.10, 1.18 | 2026-07-12 | Partially — local Supabase environment values provided and Vercel deployment completed; Storage bucket confirmation still pending |
 | 3 | Add a `DIRECT_URL` using Supabase direct connection or session pooler so Prisma Migrate does not run through the transaction pooler. | Phase 1 / Unit 1.10 | 2026-07-13 | Yes — `DIRECT_URL` is present locally |
 | 4 | Confirm whether the live Supabase database has applied migration `20260713000029_init_identity_auth_rbac`, or replace `DIRECT_URL` with a Supabase direct non-pooler connection if the session pooler keeps failing. | Phase 1 / Unit 1.10 | 2026-07-13 | No |
+| 5 | Feature Spec 02 says the agent starts after Feature Spec 01 verification checklist is fully passed, but the tracker still shows Phase 1 external setup pending. Should Phase 2 local implementation proceed before live migration and Storage bucket verification are complete? | Phase 2 / Feature Spec 02 start condition | 2026-07-13 | Yes — proceed with Phase 2 local implementation while Phase 1 external verification remains pending |
+| 6 | `AGENTS.md` requires `ui-context.md` as the design-system source of truth, but no `ui-context.md` file exists in the repository. Should the missing file be provided before Phase 2 UI work starts? | Phase 2 / Public UI implementation | 2026-07-13 | Yes — treat all references to `ui-context.md` as `context/ui-rules.md` |
+| 7 | Replace the current Prisma migration connection with a true direct non-pooler Supabase database URL so migrations `20260713000029_init_identity_auth_rbac` and `20260713010000_add_cohort_model` can be verified/applied. | Phase 1 / Unit 1.10 and Phase 2 / Active Cohort API | 2026-07-13 | No |
 
 ---
 
@@ -228,6 +231,8 @@ Decisions made during the build that are not captured in the main spec files. Re
 | 3 | Enforce `AuditLog` append-only behavior with a Prisma query extension rather than `$use` middleware. | The generated Prisma 6.19.3 client in this project does not expose `$use`; the query extension rejects `update`, `updateMany`, `upsert`, `delete`, and `deleteMany` for `AuditLog`. | 2026-07-12 |
 | 4 | Add `prisma.config.ts` to load `.env.local` before Prisma CLI commands. | Prisma CLI does not load Next.js `.env.local` by default, which caused `DATABASE_URL` to be missing during schema validation. | 2026-07-13 |
 | 5 | Configure Prisma CLI to prefer `DIRECT_URL` for migrations while keeping `DATABASE_URL` for runtime traffic. | Prisma Migrate cannot run reliably through Supabase transaction pooling and failed with prepared statement `s1` already exists. | 2026-07-13 |
+| 6 | Treat all project references to `ui-context.md` as references to `context/ui-rules.md`. | The design-system file exists as `context/ui-rules.md`; Grace confirmed this is the canonical UI context for the project. | 2026-07-13 |
+| 7 | Proceed with Feature Spec 02 local implementation before Phase 1 external migration and Storage verification are complete. | Grace explicitly confirmed to proceed; unresolved Phase 1 external checks remain tracked separately. | 2026-07-13 |
 
 ---
 
@@ -235,4 +240,4 @@ Decisions made during the build that are not captured in the main spec files. Re
 
 _Update this section at the end of every session. Describe exactly where you stopped, what was left incomplete, and what the next action is._
 
-Local Phase 1 identity/auth/RBAC implementation is complete with ten roles. `prisma.config.ts` loads `.env.local` and prefers `DIRECT_URL` for Prisma CLI migrations. A migration folder now exists at `prisma/migrations/20260713000029_init_identity_auth_rbac`, but `npx prisma migrate status` returned a schema engine error when checking the live database through `DIRECT_URL`. The next action is to verify whether that migration actually applied in Supabase, or update `DIRECT_URL` to a direct non-pooler connection and rerun Prisma migration/status commands. After migration verification, confirm the five Supabase Storage buckets, deploy to Vercel, set Vercel environment variables, and register the Clerk webhook URL.
+Phase 2 public pages are locally implemented. Added `app/(public)` pages for `/`, `/about`, `/programs`, `/sectors`, `/apply`, `/donate`, `/impact`, `/contact`, `/faqs`, `/blog`, and `/blog/[slug]`; added shared public nav/footer components using the official `public/images/logo.png` brand asset; added `POST /api/contact`; added `GET /api/cohorts/active`; added the `Cohort` Prisma model and migration folder `prisma/migrations/20260713010000_add_cohort_model`. `npx prisma validate`, `npm run lint`, and `npm run build` pass. Local route checks returned HTTP 200 for all public pages, including `/blog/example-post`. `POST /api/contact` validation path returns 400 as expected; live Resend sending was not exercised to avoid sending a real email. Auth route investigation on 2026-07-13 found a stale corrupted generated `.next/dev/types/routes.d.ts`; removing generated `.next` output and rebuilding regenerated `/sign-in` and `/sign-up` routes correctly. Applicant redirect investigation on 2026-07-13 found that role checks only read `sessionClaims.metadata.role`; added shared role-claim extraction so proxy/API checks read Clerk public metadata claim shapes before falling back to the legacy metadata claim. `npx prisma migrate dev --name add_cohort_model` still fails with a Prisma schema engine error through the configured Supabase pooler, so `/api/cohorts/active` returns 500 until the Cohort migration is applied. Next action: replace `DIRECT_URL` with a true direct non-pooler Supabase URL, apply/verify both pending migrations, then complete visual QA at 375px, 768px, and 1280px in a browser.

@@ -56,6 +56,8 @@ Every folder in the codebase owns a specific responsibility. Nothing outside tha
 │       ├── webhooks/
 │       │   ├── clerk/          # Handles Clerk user.created webhook — assigns default role
 │       │   └── paystack/       # Handles Paystack payment.success webhook — writes donation record
+│       ├── contact/            # Public contact form submission via Resend
+│       ├── cohorts/            # Public active cohort status endpoint for application windows
 │       ├── invites/            # Administrator-only invite creation for internal roles
 │       ├── applications/       # CRUD for application records and form progress
 │       ├── assessments/        # Diagnostic assessment submission and pipeline assignment logic

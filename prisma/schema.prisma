@@ -27,6 +27,13 @@ enum InviteStatus {
   expired
 }
 
+enum CohortStatus {
+  draft
+  open
+  closed
+  completed
+}
+
 model User {
   id        String   @id @default(cuid())
   clerkId   String   @unique
@@ -89,4 +96,16 @@ model AuditLog {
   createdAt  DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+model Cohort {
+  id                     String       @id @default(cuid())
+  name                   String
+  status                 CohortStatus @default(draft)
+  applicationWindowOpen  DateTime?
+  applicationWindowClose DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@map("cohorts")
 }
