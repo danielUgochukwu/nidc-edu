@@ -134,7 +134,7 @@ export default function DonatePage() {
           />
           <FeatureCard
             title="Online Contribution"
-            body="Secure online payments will be available via our payment platform. Paystack integration — Phase 8"
+            body="Secure online payments will be available via our payment platform."
             badge={
               <span className="inline-flex rounded-full bg-status-warning px-3 py-2 text-xs font-medium uppercase text-text-on-light">
                 Coming soon
