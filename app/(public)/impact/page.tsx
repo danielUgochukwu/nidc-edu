@@ -85,7 +85,14 @@ export default function ImpactPage() {
         <SectionHeader title="What We Will Track" />
         <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {trackingItems.map((item) => (
-            <FeatureCard key={item} title={item} body={item} />
+            <article
+              key={item}
+              className="rounded-md border border-surface-elevated bg-surface-secondary p-6"
+            >
+              <p className="text-base leading-relaxed text-text-secondary">
+                {item}
+              </p>
+            </article>
           ))}
         </div>
       </PublicSection>
