@@ -70,7 +70,13 @@ export default clerkMiddleware(async (auth, req) => {
   const role = getRoleFromSessionClaims(sessionClaims);
 
   if (!role) {
-    return NextResponse.redirect(new URL("/unauthorised", req.url));
+    if (req.nextUrl.pathname === "/dashboard/applicant") {
+      return NextResponse.next();
+    }
+    if (req.nextUrl.pathname.startsWith("/dashboard")) {
+      return NextResponse.redirect(new URL("/dashboard/applicant", req.url));
+    }
+    return NextResponse.next();
   }
 
   const pathname = req.nextUrl.pathname;
