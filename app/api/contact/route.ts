@@ -17,7 +17,15 @@ const contactSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: { message: "Malformed JSON body", code: "BAD_REQUEST" } },
+        { status: 400 },
+      );
+    }
     const parsed = contactSchema.safeParse(body);
 
     if (!parsed.success) {
