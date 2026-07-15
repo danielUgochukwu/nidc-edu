@@ -2,7 +2,7 @@ import { Resend } from "resend";
 
 let resendInstance: Resend | null = null;
 
-function getResendClient() {
+function getResendClient(): Resend {
   if (resendInstance) return resendInstance;
 
   const apiKey = process.env.RESEND_API_KEY;
@@ -15,12 +15,6 @@ function getResendClient() {
   return resendInstance;
 }
 
-export const resend = new Proxy({} as any, {
-  get(_, prop) {
-    return Reflect.get(getResendClient(), prop);
-  },
-}) as Resend;
-
 export async function sendInviteEmail({
   to,
   role,
@@ -32,7 +26,7 @@ export async function sendInviteEmail({
   inviteUrl: string;
   invitedBy: string;
 }) {
-  await resend.emails.send({
+  await getResendClient().emails.send({
     from: "NIDC <no-reply@nidc.org>",
     to,
     subject: `You have been invited to join NIDC as ${role.replace(/_/g, " ")}`,

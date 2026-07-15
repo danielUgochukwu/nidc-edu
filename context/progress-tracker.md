@@ -8,8 +8,8 @@ This file is the single source of truth for build progress. It must be read at t
 
 **Active Phase:** Phase 1 — Foundation  
 **Current Unit:** External setup — Supabase migration and Vercel deployment  
-**Last Updated:** 2026-07-13  
-**Build Status:** `npm run build` passes locally with required environment variables; `npx prisma validate` passes via `prisma.config.ts` loading `.env.local`; migration status still needs live DB verification  
+**Last Updated:** 2026-07-15
+**Build Status:** `npm run lint` and `npm run build` pass locally with required environment variables; Prisma schema unchanged this session; migration status still needs live DB verification
 
 ---
 
@@ -235,4 +235,4 @@ Decisions made during the build that are not captured in the main spec files. Re
 
 _Update this section at the end of every session. Describe exactly where you stopped, what was left incomplete, and what the next action is._
 
-Local Phase 1 identity/auth/RBAC implementation is complete with ten roles. `prisma.config.ts` loads `.env.local` and prefers `DIRECT_URL` for Prisma CLI migrations. A migration folder now exists at `prisma/migrations/20260713000029_init_identity_auth_rbac`, but `npx prisma migrate status` returned a schema engine error when checking the live database through `DIRECT_URL`. The next action is to verify whether that migration actually applied in Supabase, or update `DIRECT_URL` to a direct non-pooler connection and rerun Prisma migration/status commands. After migration verification, confirm the five Supabase Storage buckets, deploy to Vercel, set Vercel environment variables, and register the Clerk webhook URL.
+Local Phase 1 identity/auth/RBAC implementation is complete with ten roles. Clerk SignIn and SignUp now complete to `/dashboard`, allowing `proxy.ts` to route users to the correct role dashboard from Clerk metadata instead of defaulting everyone to the applicant dashboard. `prisma.config.ts` loads `.env.local` and prefers `DIRECT_URL` for Prisma CLI migrations. A migration folder now exists at `prisma/migrations/20260713000029_init_identity_auth_rbac`, but `npx prisma migrate status` returned a schema engine error when checking the live database through `DIRECT_URL`. The next action is to verify whether that migration actually applied in Supabase, or update `DIRECT_URL` to a direct non-pooler connection and rerun Prisma migration/status commands. After migration verification, confirm the five Supabase Storage buckets, deploy to Vercel, set Vercel environment variables, and register the Clerk webhook URL.

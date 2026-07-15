@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 let supabaseInstance: ReturnType<typeof createClient> | null = null;
 
-function getSupabaseClient() {
+function getSupabaseClient(): ReturnType<typeof createClient> {
   if (supabaseInstance) return supabaseInstance;
 
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -15,12 +15,6 @@ function getSupabaseClient() {
   supabaseInstance = createClient(supabaseUrl, serviceRoleKey);
   return supabaseInstance;
 }
-
-export const supabase = new Proxy({} as any, {
-  get(_, prop) {
-    return Reflect.get(getSupabaseClient(), prop);
-  },
-}) as ReturnType<typeof createClient>;
 
 export type StorageBucket =
   | "application-attachments"
@@ -40,7 +34,7 @@ export async function uploadFile({
   file: Buffer | Blob;
   contentType: string;
 }): Promise<string> {
-  const { error } = await supabase.storage
+  const { error } = await getSupabaseClient().storage
     .from(bucket)
     .upload(path, file, { contentType, upsert: false });
 
@@ -58,7 +52,7 @@ export async function getSignedUrl({
   path: string;
   expiresIn?: number;
 }): Promise<string> {
-  const { data, error } = await supabase.storage
+  const { data, error } = await getSupabaseClient().storage
     .from(bucket)
     .createSignedUrl(path, expiresIn);
 
