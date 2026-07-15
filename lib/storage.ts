@@ -54,7 +54,7 @@ export async function getSignedUrl({
 }): Promise<string> {
   const { data, error } = await getSupabaseClient().storage
     .from(bucket)
-    .createSignedUrl(path, expiresIn);
+    .createSignedUrl(path, expiresIn ?? 900);
 
   if (error || !data) {
     throw new Error(`Failed to generate signed URL: ${error?.message}`);
