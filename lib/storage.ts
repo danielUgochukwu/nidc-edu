@@ -21,6 +21,7 @@ function getSupabaseClient(): ReturnType<typeof createClient> {
 <<<<<<< HEAD
 =======
 const supabaseProxyTarget = {} as SupabaseClient;
+const supabaseProxyTarget = {} as SupabaseClient;
 
 export const supabase = new Proxy(supabaseProxyTarget, {
   get(_, prop) {
@@ -29,8 +30,6 @@ export const supabase = new Proxy(supabaseProxyTarget, {
     return typeof value === "function" ? value.bind(client) : value;
   },
 });
-
->>>>>>> main
 export type StorageBucket =
   | "application-attachments"
   | "identity-documents"
