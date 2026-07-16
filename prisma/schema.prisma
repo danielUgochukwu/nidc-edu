@@ -34,15 +34,80 @@ enum CohortStatus {
   completed
 }
 
+enum PipelineTrack {
+  educational_pathway
+  direct_development_track
+  borderline
+}
+
+enum ApplicationStatus {
+  draft
+  submitted
+  under_review
+  shortlisted
+  rejected
+  accepted
+}
+
+enum EducationLevel {
+  no_formal_education
+  primary
+  secondary
+  vocational_trade
+  undergraduate
+  postgraduate
+}
+
+enum EmploymentStatus {
+  unemployed
+  self_employed
+  employed
+  student
+}
+
+enum ExperienceYears {
+  none
+  less_than_1
+  one_to_3
+  three_to_5
+  five_plus
+}
+
+enum SectorPreference {
+  energy_systems
+  manufacturing_industrial_systems
+  digital_infrastructure
+}
+
+enum HowHeard {
+  social_media
+  word_of_mouth
+  online_search
+  event
+  referred
+  other
+}
+
+enum PipelineStage {
+  enrolled
+  foundation_learning
+  university_integration
+  skill_development
+  applied_practice
+  mentorship
+  deployment
+}
+
 model User {
-  id        String   @id @default(cuid())
-  clerkId   String   @unique
-  email     String   @unique
-  firstName String?
-  lastName  String?
-  role      Role     @default(applicant)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String       @id @default(cuid())
+  clerkId     String       @unique
+  email       String       @unique
+  firstName   String?
+  lastName    String?
+  role        Role         @default(applicant)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  application Application?
 
   @@map("users")
 }
@@ -99,13 +164,146 @@ model AuditLog {
 }
 
 model Cohort {
-  id                     String       @id @default(cuid())
+  id                     String        @id @default(cuid())
   name                   String
-  status                 CohortStatus @default(draft)
+  status                 CohortStatus  @default(draft)
   applicationWindowOpen  DateTime?
   applicationWindowClose DateTime?
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  applications           Application[]
 
   @@map("cohorts")
+}
+
+model Application {
+  id              String            @id @default(cuid())
+  userId          String            @unique
+  cohortId        String
+  status          ApplicationStatus @default(draft)
+  currentStep     Int               @default(1)
+  pipelineTrack   PipelineTrack?
+  pipelineStage   PipelineStage?
+  assessmentScore Int?
+  isBorderline    Boolean           @default(false)
+  submittedAt     DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  user           User                       @relation(fields: [userId], references: [clerkId])
+  cohort         Cohort                     @relation(fields: [cohortId], references: [id])
+  personalInfo   ApplicationPersonalInfo?
+  educationInfo  ApplicationEducationInfo?
+  experienceInfo ApplicationExperienceInfo?
+  sectorInfo     ApplicationSectorInfo?
+  motivationInfo ApplicationMotivationInfo?
+  responses      AssessmentResponse[]
+
+  @@map("applications")
+}
+
+model ApplicationPersonalInfo {
+  id               String   `@id` `@default`(cuid())
+  applicationId    String   `@unique`
+  dateOfBirth      DateTime `@db.Date`
+  gender           String
+  stateOfOrigin    String
+  stateOfResidence String
+  phoneNumber      String
+  createdAt        DateTime `@default`(now())
+  updatedAt        DateTime `@updatedAt`
+
+  application Application `@relation`(fields: [applicationId], references: [id])
+
+  @@map("application_personal_info")
+}
+
+model ApplicationEducationInfo {
+  id              String         @id @default(cuid())
+  applicationId   String         @unique
+  educationLevel  EducationLevel
+  fieldOfStudy    String?
+  institutionName String?
+  yearCompleted   Int?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id])
+
+  @@map("application_education_info")
+}
+
+model ApplicationExperienceInfo {
+  id                    String           @id @default(cuid())
+  applicationId         String           @unique
+  employmentStatus      EmploymentStatus
+  currentRole           String?
+  experienceYears       ExperienceYears
+  experienceDescription String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id])
+
+  @@map("application_experience_info")
+}
+
+model ApplicationSectorInfo {
+  id               String           @id @default(cuid())
+  applicationId    String           @unique
+  sectorPreference SectorPreference
+  sectorReason     String
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id])
+
+  @@map("application_sector_info")
+}
+
+model ApplicationMotivationInfo {
+  id                 String   @id @default(cuid())
+  applicationId      String   @unique
+  whyApplying        String
+  longTermCommitment String
+  howHeard           HowHeard
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id])
+
+  @@map("application_motivation_info")
+}
+
+model AssessmentQuestion {
+  id            String   @id @default(cuid())
+  question      String
+  optionA       String
+  optionB       String
+  optionC       String
+  optionD       String
+  correctOption String
+  order         Int
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  responses AssessmentResponse[]
+
+  @@map("assessment_questions")
+}
+
+model AssessmentResponse {
+  id             String   @id @default(cuid())
+  applicationId  String
+  questionId     String
+  selectedOption String
+  isCorrect      Boolean
+  createdAt      DateTime @default(now())
+
+  application Application        @relation(fields: [applicationId], references: [id])
+  question    AssessmentQuestion @relation(fields: [questionId], references: [id])
+
+  @@unique([applicationId, questionId])
+  @@map("assessment_responses")
 }

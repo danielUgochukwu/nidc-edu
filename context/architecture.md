@@ -100,7 +100,7 @@ Everything that has relationships, requires querying, needs audit trails, or dri
 |---|---|
 | `User` | Platform user record linked to Clerk user ID. Stores role, sector preference, pipeline track assignment, and cohort reference |
 | `Cohort` | Cohort records with application window open/close dates, status, and sector |
-| `Application` | Candidate application — form progress, submission status, pipeline assignment, diagnostic assessment result, and flag for borderline review |
+| `Application` | Candidate application — form progress, submission status, pipeline assignment, diagnostic assessment result, borderline review flag, and related personal, education, experience, sector, and motivation detail tables |
 | `AssessmentQuestion` | Questions in the diagnostic assessment — created and managed by the screening team |
 | `AssessmentResponse` | Candidate responses to each assessment question, linked to their application |
 | `ScreeningVote` | Individual reviewer votes on an application — approve, reject, or abstain — with timestamp and reviewer ID |
