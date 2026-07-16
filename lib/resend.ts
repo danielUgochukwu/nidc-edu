@@ -15,8 +15,6 @@ function getResendClient(): Resend {
   return resendInstance;
 }
 
-<<<<<<< HEAD
-=======
 const resendProxyTarget = {} as Resend;
 
 export const resend = new Proxy(resendProxyTarget, {
@@ -27,7 +25,6 @@ export const resend = new Proxy(resendProxyTarget, {
   },
 });
 
->>>>>>> main
 export async function sendInviteEmail({
   to,
   role,
