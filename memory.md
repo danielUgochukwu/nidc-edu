@@ -1,44 +1,44 @@
-# Memory — Phase 2 Public Pages Handoff
+# Memory — Merge Conflict Cleanup Handoff
 
-Last updated: 2026-07-13 07:55 +01:00
+Last updated: 2026-07-16 08:07 +01:00
 
 ## What was built
 
-- Phase 2 public-facing pages are locally implemented under `app/(public)`: `/`, `/about`, `/programs`, `/sectors`, `/apply`, `/donate`, `/impact`, `/contact`, `/faqs`, `/blog`, and `/blog/[slug]`.
-- Added shared public UI components in `components/public/`: `PublicNav`, `PublicFooter`, `PublicLinkButton`, `PublicSection`, `CohortStatusBanner`, `ApplyCta`, `ContactForm`, and `FAQAccordion`.
-- Public nav and footer use the official NIDC logo asset at `public/images/logo.png`.
-- Added `POST /api/contact` for the contact form and `GET /api/cohorts/active` for the Apply page cohort-status banner.
-- Added Prisma `CohortStatus` enum and `Cohort` model in `prisma/schema.prisma`.
-- Added migration folder `prisma/migrations/20260713010000_add_cohort_model/`.
-- Updated `proxy.ts` to allow unauthenticated public access to `/api/contact` and `/api/cohorts/active`.
-- Updated `context/architecture.md`, `context/progress-tracker.md`, and created `ui-registry.md` with the public UI patterns.
-- Removed the old root `app/page.tsx` because `/` now lives at `app/(public)/page.tsx`.
+- Resolved all remaining merge conflict markers in:
+  - `app/(auth)/sign-in/page.tsx`
+  - `app/(auth)/sign-up/page.tsx`
+  - `lib/resend.ts`
+  - `lib/storage.ts`
+  - `context/progress-tracker.md`
+- Auth pages now consistently use `forceRedirectUrl="/applicant"`.
+- `lib/resend.ts` retains the lazy `resend` proxy export required by `app/api/contact/route.ts`.
+- `lib/storage.ts` retains the lazy `supabase` proxy export and removed duplicated proxy-target/marker debris.
+- `context/progress-tracker.md` now reconciles Phase 2 as the active phase while preserving pending Phase 1 Supabase migration/storage verification.
 
 ## Decisions made
 
-- Grace confirmed Feature Spec 02 local implementation should proceed even though Phase 1 external Supabase verification remains pending.
-- Grace confirmed all references to `ui-context.md` should be treated as `context/ui-rules.md`.
-- The public brand mark is the official `/public/images/logo.png`, not a text-only NIDC wordmark.
-- Favicon/icon workspace state belongs to Grace; do not treat `app/favicon.ico` deletion or `public/images/icon.png` as unexpected agent changes.
+- Chose `/applicant` over `/dashboard` for Clerk sign-in/sign-up redirects because Grace previously confirmed `app/(dashboard)` is a route group and role dashboards compile as root-level routes.
+- Kept the lazy Resend and Supabase proxy exports because current code and specs import the clients directly while still needing environment variables to be read lazily.
+- Did not fix the existing unused `FeatureCard` lint warning in `app/(public)/impact/page.tsx`; it is unrelated to the merge-conflict findings.
 
 ## Problems solved
 
-- Replaced text-only public nav/footer branding with the official logo asset.
-- Removed explicit `any` usage from the lazy Resend and Supabase client proxies so lint passes.
-- Escaped JSX apostrophes that caused `react/no-unescaped-entities` lint failures.
-- Production build fails without network access because `next/font/google` fetches Inter and Poppins; rerunning `npm run build` with approved network access passes.
+- Removed repository-wide conflict markers; a final `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` scan found none.
+- Fixed trailing whitespace introduced in `context/progress-tracker.md`; `git diff --check` now passes.
+- Confirmed production build may fail in the restricted sandbox because `next/font/google` needs network access for Inter and Poppins. Rerunning `npm run build` with approved network access passed.
 
 ## Current state
 
-- `npx prisma validate` passes.
-- `npm run lint` passes.
-- `npm run build` passes when network access is allowed for Google Fonts.
-- Local route checks returned HTTP 200 for all public pages, including `/blog/example-post`.
-- `POST /api/contact` validation path returns 400 as expected for invalid input; live Resend sending was not exercised to avoid sending a real email.
-- `npx prisma migrate dev --name add_cohort_model` still fails with a bare Prisma schema engine error through the configured Supabase pooler.
-- Because the Cohort migration is not applied, `GET /api/cohorts/active` returns 500 locally until the database has the `cohorts` table.
-- Visual breakpoint QA at 375px, 768px, and 1280px is still pending.
-- Phase 1 external verification is still pending: initial migration status, Supabase Storage buckets, and related external setup checks.
+- Modified files: `app/(auth)/sign-in/page.tsx`, `app/(auth)/sign-up/page.tsx`, `lib/resend.ts`, `lib/storage.ts`, and `context/progress-tracker.md`.
+- Validation results from 2026-07-16:
+  - `npx prisma validate` passes.
+  - `npm run lint` passes with one unrelated warning in `app/(public)/impact/page.tsx` for unused `FeatureCard`.
+  - `npm run build` passes with network access approved for Google Fonts.
+  - Conflict marker scan is clean.
+  - `git diff --check` passes.
+- Phase 2 public pages remain locally implemented.
+- Live Supabase migration verification is still unresolved; `GET /api/cohorts/active` is still expected to return 500 until the Cohort migration is applied.
+- Phase 1 external verification remains pending for migration status and Supabase Storage bucket confirmation.
 
 ## Next session starts with
 
