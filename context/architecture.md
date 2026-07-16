@@ -6,7 +6,7 @@
 
 | Layer | Technology | Role |
 |---|---|---|
-| Framework | Next.js 16 (App Router) | Full-stack framework handling frontend rendering, API routes, and server-side logic in a single codebase |
+| Framework | Next.js 14 (App Router) | Full-stack framework handling frontend rendering, API routes, and server-side logic in a single codebase |
 | Authentication | Clerk | User sign-up, login, session management, JWT issuance, and role metadata storage via `publicMetadata` |
 | Database | PostgreSQL | Primary relational data store for all application, candidate, screening, mentorship, donation, and grant records |
 | ORM | Prisma | Type-safe database access, schema definition, and migration management |
@@ -41,22 +41,20 @@ Every folder in the codebase owns a specific responsibility. Nothing outside tha
 │   │   ├── sign-in/            # Login page
 │   │   └── sign-up/            # Registration page — role set to applicant on completion
 │   │
-│   ├── (dashboard)/            # Protected route group — requires valid Clerk session
-│   │   └── dashboard/          # URL segment for role-specific dashboards
-│   │       ├── applicant/      # Application form, diagnostic assessment, submission status
-│   │       ├── candidate/      # Pipeline stage, milestones, documents, notifications
-│   │       ├── mentor/         # Assigned candidates, session logs, milestone tracking
-│   │       ├── screening/      # Application queue, consensus voting, shortlist management
-│   │       ├── program-director/ # Escalated applications, tie-breaking decisions
-│   │       ├── finance/        # Finance Officer and Grant Officer work area
-│   │       ├── admin/          # User management, cohort management, audit trails
-│   │       └── donor/          # Donation history, impact metrics
+│   ├── (dashboard)/            # Protected pages — requires valid Clerk session
+│   │   ├── applicant/          # Application form, diagnostic assessment, submission status
+│   │   ├── candidate/          # Pipeline stage, milestones, documents, notifications
+│   │   ├── mentor/             # Assigned candidates, session logs, milestone tracking
+│   │   ├── screening/          # Application queue, consensus voting, shortlist management
+│   │   ├── program-director/   # Escalated applications, tie-breaking decisions
+│   │   ├── finance/            # Expenditure entry, grant tracking, report generation
+│   │   ├── admin/              # User management, cohort management, audit trails
+│   │   └── donor/              # Donation history, impact metrics
 │   │
 │   └── api/                    # API route handlers — server-side only
 │       ├── webhooks/
 │       │   ├── clerk/          # Handles Clerk user.created webhook — assigns default role
 │       │   └── paystack/       # Handles Paystack payment.success webhook — writes donation record
-│       ├── invites/            # Administrator-only invite creation for internal roles
 │       ├── applications/       # CRUD for application records and form progress
 │       ├── assessments/        # Diagnostic assessment submission and pipeline assignment logic
 │       ├── screening/          # Consensus votes, escalation triggers, shortlist actions
@@ -70,7 +68,6 @@ Every folder in the codebase owns a specific responsibility. Nothing outside tha
 ├── prisma/
 │   ├── schema.prisma           # Single source of truth for all database models and relations
 │   └── migrations/             # Versioned migration history — never edited manually
-├── prisma.config.ts            # Prisma CLI config — loads .env.local and points commands at schema.prisma
 │
 ├── lib/
 │   ├── prisma.ts               # Prisma client singleton — imported wherever DB access is needed
@@ -86,7 +83,7 @@ Every folder in the codebase owns a specific responsibility. Nothing outside tha
 │   ├── dashboard/              # Role-specific dashboard layout components
 │   └── public/                 # Landing page sections, navigation, footer
 │
-├── proxy.ts                    # Clerk proxy — protects all dashboard routes, enforces role-based routing
+├── proxy.ts               # Clerk middleware — protects all (dashboard) routes, enforces role-based routing
 ├── .env.local                  # Local environment variables — never committed to version control
 └── .env.example                # Template of required environment variables — committed to version control
 ```
@@ -101,10 +98,7 @@ Everything that has relationships, requires querying, needs audit trails, or dri
 
 | Table | What it stores |
 |---|---|
-| `User` | Platform user record linked to Clerk user ID. Mirrors Clerk role for querying and audit context; later phases add sector, pipeline, and cohort references |
-| `Organization` | Organization record for future partner, donor, or institutional grouping |
-| `OrganizationMember` | Join table linking users to organizations with an organization-scoped role |
-| `Invite` | Pending or accepted invite token for assigning approved internal roles during Clerk sign-up |
+| `User` | Platform user record linked to Clerk user ID. Stores role, sector preference, pipeline track assignment, and cohort reference |
 | `Cohort` | Cohort records with application window open/close dates, status, and sector |
 | `Application` | Candidate application — form progress, submission status, pipeline assignment, diagnostic assessment result, and flag for borderline review |
 | `AssessmentQuestion` | Questions in the diagnostic assessment — created and managed by the screening team |
@@ -147,10 +141,10 @@ No caching layer is introduced in the initial build. Vercel's serverless functio
 ### How Authentication Works
 
 1. A user signs up or logs in via Clerk on the `/sign-up` or `/sign-in` page.
-2. On `user.created`, Clerk fires a webhook to `/api/webhooks/clerk`. The handler creates a `User` record in PostgreSQL linked to the Clerk user ID, and sets the role in Clerk `publicMetadata` from a valid invite or falls back to `applicant`.
+2. On `user.created`, Clerk fires a webhook to `/api/webhooks/clerk`. The handler creates a `User` record in PostgreSQL linked to the Clerk user ID, and sets the default role to `applicant` in Clerk `publicMetadata`.
 3. Every subsequent request to a protected route passes through `proxy.ts`, which validates the Clerk session token and reads the role from `publicMetadata`.
-4. The proxy enforces role-based routing — a user with the `applicant` role cannot access `/dashboard/screening`, a user with the `screening_team` role cannot access `/dashboard/finance`, and so on.
-5. API routes perform a second role check server-side using Clerk's `auth()` helper. The proxy check alone is not sufficient — every API route that writes data must verify the caller's role independently.
+4. The middleware enforces role-based routing — a user with the `applicant` role cannot access `/screening`, a user with the `screening_team` role cannot access `/finance`, and so on.
+5. API routes perform a second role check server-side using Clerk's `auth()` helper. The middleware check alone is not sufficient — every API route that writes data must verify the caller's role independently.
 
 ### Role Definitions and Access
 
@@ -171,7 +165,7 @@ No caching layer is introduced in the initial build. Vercel's serverless functio
 
 - A `ScreeningVote` is owned by the reviewer who cast it. No other user can modify or delete it.
 - An `Expenditure` record is created by a Finance Officer and cannot be edited or deleted after a second Finance Officer or Program Director has approved it.
-- An `AuditLog` entry is immutable. No role — including Administrator — can update or delete an audit log record. This is enforced at the ORM boundary via a Prisma query extension that rejects any update, upsert, or delete operation on the `AuditLog` table.
+- An `AuditLog` entry is immutable. No role — including Administrator — can update or delete an audit log record. This is enforced at the database level via a Prisma middleware hook that intercepts and rejects any update or delete operation on the `AuditLog` table.
 - A `MentorMatch` can only be created by an Administrator or Screening Team Member, never by the mentor or candidate themselves.
 
 ---
@@ -188,42 +182,18 @@ All background tasks run as Vercel Cron Jobs calling internal API endpoints. Eac
 
 ---
 
-## Environment Variables
-
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | Runtime Supabase PostgreSQL connection string used by Prisma Client; use transaction pooling for serverless deployments |
-| `DIRECT_URL` | Prisma CLI migration connection string; use a direct database connection or Supabase session pooler, not transaction pooling |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public Clerk browser key |
-| `CLERK_SECRET_KEY` | Clerk server API key |
-| `CLERK_WEBHOOK_SECRET` | Svix signing secret for Clerk webhook verification |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public Clerk sign-in route |
-| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | Public Clerk sign-up route |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` | Post-login route before role-based dashboard routing |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL` | Post-signup route before role-based dashboard routing |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only Supabase service role key for Storage operations |
-| `RESEND_API_KEY` | Resend server API key for transactional email |
-| `PAYSTACK_SECRET_KEY` | Paystack server secret used by Phase 8 payment helpers |
-| `NEXT_PUBLIC_APP_URL` | Canonical application URL used when generating invite links |
-| `CRON_SECRET` | Shared secret for future Vercel Cron endpoints |
-
-Prisma CLI commands load `.env.local` through `prisma.config.ts`. The config uses `DIRECT_URL` when present so migrations bypass the transaction pooler; it falls back to `DATABASE_URL` only for local commands that do not require the migration engine. Next.js reads `.env.local` directly at runtime and build time.
-
----
-
 ## Invariants
 
 These are rules the codebase must never violate under any circumstances. They are not preferences or guidelines — they are hard constraints that protect the integrity of the platform.
 
 **1. Roles are set and read exclusively through Clerk `publicMetadata` — never from the database alone.**
-The `User` table in PostgreSQL mirrors the role for querying and audit purposes, but the authoritative source of a user's role is always Clerk `publicMetadata`. Any access control decision — in proxy logic or in an API route — must read from Clerk, not from a database query. Reading role from the database for access decisions creates a desync attack surface.
+The `User` table in PostgreSQL mirrors the role for querying and audit purposes, but the authoritative source of a user's role is always Clerk `publicMetadata`. Any access control decision — in middleware or in an API route — must read from Clerk, not from a database query. Reading role from the database for access decisions creates a desync attack surface.
 
 **2. No API route that writes data may skip a server-side role check.**
-The proxy protects pages, not API routes. Every API route handler that creates, updates, or deletes a record must call Clerk's `auth()` helper and verify the caller's role before executing any database operation. A valid session token is not sufficient — the role must be explicitly checked against what that endpoint permits.
+Middleware protects pages, not API routes. Every API route handler that creates, updates, or deletes a record must call Clerk's `auth()` helper and verify the caller's role before executing any database operation. A valid session token is not sufficient — the role must be explicitly checked against what that endpoint permits.
 
 **3. The `AuditLog` table is append-only. No update or delete operation is ever permitted.**
-Every screening decision, role change, financial entry, and escalation event writes an `AuditLog` record. This table must never be modified after creation. This is enforced by a Prisma query extension that throws an error on any `update`, `upsert`, or `delete` operation targeting `AuditLog`, regardless of who calls it. Administrators have no UI to edit or remove audit records.
+Every screening decision, role change, financial entry, and escalation event writes an `AuditLog` record. This table must never be modified after creation. This is enforced by a Prisma middleware hook that throws an error on any `update` or `delete` operation targeting `AuditLog`, regardless of who calls it. Administrators have no UI to edit or remove audit records.
 
 **4. A Paystack donation record is only written to the database after the Paystack webhook confirms payment success.**
 The donation flow initiates a Paystack transaction and stores a pending reference. The `Donation` record is not created, and no receipt is sent, until the `/api/webhooks/paystack` handler receives and verifies a `charge.success` event with a matching reference. Writing a donation record before webhook confirmation produces false financial data and corrupts the donor's history.

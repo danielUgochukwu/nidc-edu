@@ -166,7 +166,7 @@ If this session added a new API route, database model, environment variable, rol
 ## What You Must Never Do
 
 - Never modify `prisma/migrations/*` files that have already been applied
-- Never modify `middleware.ts` unless the current unit explicitly requires it
+- Never modify `proxy.ts` unless the current unit explicitly requires it
 - Never modify `components/ui/*` internal logic for a specific feature
 - Never modify `app/api/webhooks/clerk/route.ts` or `app/api/webhooks/paystack/route.ts` without explicit instruction
 - Never install a new dependency without explicit approval
