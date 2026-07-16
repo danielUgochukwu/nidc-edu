@@ -1,6 +1,6 @@
-# Memory — Merge Conflict Cleanup Handoff
+# Memory — Phase 3 Application System Handoff
 
-Last updated: 2026-07-16 08:07 +01:00
+Last updated: 2026-07-16 11:04 +01:00
 
 ## What was built
 
@@ -13,7 +13,7 @@ Last updated: 2026-07-16 08:07 +01:00
 - Auth pages now consistently use `forceRedirectUrl="/applicant"`.
 - `lib/resend.ts` retains the lazy `resend` proxy export required by `app/api/contact/route.ts`.
 - `lib/storage.ts` retains the lazy `supabase` proxy export and removed duplicated proxy-target/marker debris.
-- `context/progress-tracker.md` now reconciles Phase 2 as the active phase while preserving pending Phase 1 Supabase migration/storage verification.
+- `context/progress-tracker.md` now marks Phase 3 Application System as active, Phase 2 visual QA as Done, and Unit 3.1 blocked on local migration verification and Prisma generation.
 
 ## Decisions made
 
@@ -36,22 +36,27 @@ Last updated: 2026-07-16 08:07 +01:00
   - `npm run build` passes with network access approved for Google Fonts.
   - Conflict marker scan is clean.
   - `git diff --check` passes.
-- Phase 2 public pages remain locally implemented.
-- Live Supabase migration verification is still unresolved; `GET /api/cohorts/active` is still expected to return 500 until the Cohort migration is applied.
+- Phase 2 public pages and visual QA are marked Done.
+- Phase 3 Unit 3.1 local schema work is in progress: `prisma/schema.prisma` includes the application-system models, `Application.userId` now relates to `User.clerkId`, and local migration folders `prisma/migrations/20260716092307_add_application_system` and `prisma/migrations/20260716114222_add_application_user_relation` exist.
+- Grace reported migration `20260716092307_add_application_system` has been applied.
+- Migration `20260716114222_add_application_user_relation` still needs applying.
+- Local Supabase migration verification is still unresolved because Prisma CLI resolves to the Supabase pooler URL and `npx prisma migrate status` fails with a schema engine error.
+- Prisma generation is blocked by a Windows `EPERM` file lock on `node_modules/.prisma/client/query_engine-windows.dll.node`.
 - Phase 1 external verification remains pending for migration status and Supabase Storage bucket confirmation.
 
 ## Next session starts with
 
 1. Run `/remember restore`.
 2. Replace `DIRECT_URL` with a true direct non-pooler Supabase database URL.
-3. Apply or verify both migrations: `20260713000029_init_identity_auth_rbac` and `20260713010000_add_cohort_model`.
-4. Recheck `GET /api/cohorts/active`; expected closed-state response with no open cohort is `{ data: { isOpen: false, cohort: null } }`.
-5. Complete browser visual QA at 375px, 768px, and 1280px.
-6. After database and visual QA pass, update `context/progress-tracker.md` to mark Phase 2 verification complete.
+3. Stop the Node process locking Prisma Client if needed, then rerun `npx prisma generate`.
+4. Apply `20260716114222_add_application_user_relation`, then verify migrations: `20260713000029_init_identity_auth_rbac`, `20260713010000_add_cohort_model`, `20260716092307_add_application_system`, and `20260716114222_add_application_user_relation`.
+5. Recheck `GET /api/cohorts/active`; expected closed-state response with no open cohort is `{ data: { isOpen: false, cohort: null } }`.
+6. Resume Phase 3 Unit 3.1 verification after database and Prisma generation blockers are cleared.
 
 ## Open questions
 
-- What is the correct true direct non-pooler Supabase URL for Prisma migration/schema-engine commands?
+- What is the correct true direct non-pooler Supabase URL for Prisma migration/status commands?
+- Which Node process can be stopped to release the Prisma Client query-engine file lock?
 - Are all five Supabase Storage buckets provisioned?
 - Has the initial Phase 1 migration already been applied cleanly in Supabase?
 - Should a real contact-form email be sent during verification, or should Resend be verified through test/mocked delivery?
