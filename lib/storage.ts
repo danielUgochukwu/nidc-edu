@@ -4,7 +4,7 @@ type SupabaseClient = ReturnType<typeof createClient>;
 
 let supabaseInstance: SupabaseClient | null = null;
 
-function getSupabaseClient() {
+function getSupabaseClient(): ReturnType<typeof createClient> {
   if (supabaseInstance) return supabaseInstance;
 
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -46,7 +46,7 @@ export async function uploadFile({
   file: Buffer | Blob;
   contentType: string;
 }): Promise<string> {
-  const { error } = await supabase.storage
+  const { error } = await getSupabaseClient().storage
     .from(bucket)
     .upload(path, file, { contentType, upsert: false });
 
@@ -64,9 +64,9 @@ export async function getSignedUrl({
   path: string;
   expiresIn?: number;
 }): Promise<string> {
-  const { data, error } = await supabase.storage
+  const { data, error } = await getSupabaseClient().storage
     .from(bucket)
-    .createSignedUrl(path, expiresIn);
+    .createSignedUrl(path, expiresIn ?? 900);
 
   if (error || !data) {
     throw new Error(`Failed to generate signed URL: ${error?.message}`);
