@@ -201,17 +201,17 @@ model Application {
 }
 
 model ApplicationPersonalInfo {
-  id               String   @id @default(cuid())
-  applicationId    String   @unique
-  dateOfBirth      DateTime
+  id               String   `@id` `@default`(cuid())
+  applicationId    String   `@unique`
+  dateOfBirth      DateTime `@db.Date`
   gender           String
   stateOfOrigin    String
   stateOfResidence String
   phoneNumber      String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime `@default`(now())
+  updatedAt        DateTime `@updatedAt`
 
-  application Application @relation(fields: [applicationId], references: [id])
+  application Application `@relation`(fields: [applicationId], references: [id])
 
   @@map("application_personal_info")
 }
