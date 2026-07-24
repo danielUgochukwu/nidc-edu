@@ -19,4 +19,7 @@ export default defineConfig({
   datasource: {
     url: datasourceUrl,
   },
+  migrations: {
+    seed: "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts",
+  },
 });
