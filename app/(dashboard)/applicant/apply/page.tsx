@@ -12,7 +12,7 @@ async function requireApplicantUser() {
   }
 
   if (authError === "UNAUTHENTICATED") redirect("/sign-in");
-  if (authError === "UNAUTHORISED") redirect("/unauthorised");
+  if (authError === "UNAUTHORIZED") redirect("/unauthorized");
 
   throw new Error(authError);
 }

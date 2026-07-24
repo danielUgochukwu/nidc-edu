@@ -171,9 +171,18 @@ export async function PATCH(
             create: { applicationId, ...data, dateOfBirth },
           });
 
+          const currentApplication = await tx.application.findUnique({
+            where: { id: applicationId },
+            select: { currentStep: true },
+          });
+
+          if (!currentApplication) {
+            throw new Error("APPLICATION_NOT_FOUND_DURING_STEP_SAVE");
+          }
+
           await tx.application.update({
             where: { id: applicationId },
-            data: { currentStep: Math.max(application.currentStep, 2) },
+            data: { currentStep: Math.max(currentApplication.currentStep, 2) },
           });
         });
       } else if (stepNumber === 2) {
@@ -188,9 +197,18 @@ export async function PATCH(
             create: { applicationId, ...data },
           });
 
+          const currentApplication = await tx.application.findUnique({
+            where: { id: applicationId },
+            select: { currentStep: true },
+          });
+
+          if (!currentApplication) {
+            throw new Error("APPLICATION_NOT_FOUND_DURING_STEP_SAVE");
+          }
+
           await tx.application.update({
             where: { id: applicationId },
-            data: { currentStep: Math.max(application.currentStep, 3) },
+            data: { currentStep: Math.max(currentApplication.currentStep, 3) },
           });
         });
       } else if (stepNumber === 3) {
@@ -205,9 +223,18 @@ export async function PATCH(
             create: { applicationId, ...data },
           });
 
+          const currentApplication = await tx.application.findUnique({
+            where: { id: applicationId },
+            select: { currentStep: true },
+          });
+
+          if (!currentApplication) {
+            throw new Error("APPLICATION_NOT_FOUND_DURING_STEP_SAVE");
+          }
+
           await tx.application.update({
             where: { id: applicationId },
-            data: { currentStep: Math.max(application.currentStep, 4) },
+            data: { currentStep: Math.max(currentApplication.currentStep, 4) },
           });
         });
       } else if (stepNumber === 4) {
@@ -222,9 +249,18 @@ export async function PATCH(
             create: { applicationId, ...data },
           });
 
+          const currentApplication = await tx.application.findUnique({
+            where: { id: applicationId },
+            select: { currentStep: true },
+          });
+
+          if (!currentApplication) {
+            throw new Error("APPLICATION_NOT_FOUND_DURING_STEP_SAVE");
+          }
+
           await tx.application.update({
             where: { id: applicationId },
-            data: { currentStep: Math.max(application.currentStep, 5) },
+            data: { currentStep: Math.max(currentApplication.currentStep, 5) },
           });
         });
       } else {
@@ -239,9 +275,18 @@ export async function PATCH(
             create: { applicationId, ...data },
           });
 
+          const currentApplication = await tx.application.findUnique({
+            where: { id: applicationId },
+            select: { currentStep: true },
+          });
+
+          if (!currentApplication) {
+            throw new Error("APPLICATION_NOT_FOUND_DURING_STEP_SAVE");
+          }
+
           await tx.application.update({
             where: { id: applicationId },
-            data: { currentStep: Math.max(application.currentStep, 6) },
+            data: { currentStep: Math.max(currentApplication.currentStep, 6) },
           });
         });
       }

@@ -48,12 +48,15 @@ Escalation is triggered by a Vercel Cron Job running hourly. It checks all appli
 - The oldest vote is more than 48 hours old
 - No escalation record exists yet
 
-### Rejection Notifications
+### Outcome Notifications
 
-When an application is rejected at any point — screening vote, borderline review, or escalation decision — the system:
-1. Updates `Application.status` to `rejected`
-2. Creates an in-platform `Notification` for the candidate
-3. Sends a rejection email via Resend
+When an application is rejected or shortlisted at any point — screening vote, borderline review, or escalation decision — the system:
+1. Requires the application to have a linked candidate `User` record
+2. Updates `Application.status`
+3. Writes the decision audit entry in the same database transaction
+4. Enqueues an idempotent outcome dispatch job in the same transaction
+
+A retryable cron worker creates the in-platform `Notification` and sends the Resend email from the dispatch job. Outcome decision routes must not call Resend directly after persisting a status change.
 
 ---
 
@@ -77,6 +80,20 @@ enum EscalationStatus {
 enum EscalationTarget {
   program_director
   deputy_program_director
+}
+
+enum ApplicationOutcomeDispatchStatus {
+  pending
+  processing
+  sent
+  failed
+}
+
+enum EscalationNotificationDispatchStatus {
+  pending
+  processing
+  sent
+  failed
 }
 
 model ScreeningVote {
@@ -108,8 +125,49 @@ model EscalationRecord {
   updatedAt     DateTime         @updatedAt
 
   application   Application      @relation(fields: [applicationId], references: [id])
+  notificationDispatches EscalationNotificationDispatch[]
 
   @@map("escalation_records")
+}
+
+model EscalationNotificationDispatch {
+  id                    String                               @id @default(cuid())
+  escalationRecordId    String
+  applicationId         String
+  idempotencyKey        String                               @unique
+  target                EscalationTarget
+  targetUserId          String
+  status                EscalationNotificationDispatchStatus @default(pending)
+  attempts              Int                                  @default(0)
+  lastError             String?
+  notificationCreatedAt DateTime?
+  emailSentAt           DateTime?
+  dispatchedAt          DateTime?
+  createdAt             DateTime                             @default(now())
+  updatedAt             DateTime                             @updatedAt
+
+  escalationRecord      EscalationRecord                     @relation(fields: [escalationRecordId], references: [id])
+
+  @@map("escalation_notification_dispatches")
+}
+
+model ApplicationOutcomeDispatch {
+  id                    String                           @id @default(cuid())
+  applicationId         String
+  idempotencyKey        String                           @unique
+  outcome               ApplicationStatus
+  status                ApplicationOutcomeDispatchStatus @default(pending)
+  attempts              Int                              @default(0)
+  lastError             String?
+  notificationCreatedAt DateTime?
+  emailSentAt           DateTime?
+  dispatchedAt          DateTime?
+  createdAt             DateTime                         @default(now())
+  updatedAt             DateTime                         @updatedAt
+
+  application           Application                      @relation(fields: [applicationId], references: [id])
+
+  @@map("application_outcome_dispatches")
 }
 ```
 
@@ -120,6 +178,7 @@ model Application {
   // ... existing fields ...
   screeningVotes    ScreeningVote[]
   escalationRecord  EscalationRecord?
+  outcomeDispatches ApplicationOutcomeDispatch[]
 }
 ```
 
@@ -142,6 +201,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/clerk'
 import { prisma } from '@/lib/prisma'
 
+const applicationStatuses = [
+  'draft',
+  'submitted',
+  'under_review',
+  'shortlisted',
+  'rejected',
+  'accepted',
+] as const
+
+type ApplicationStatusFilter = (typeof applicationStatuses)[number]
+
+const applicationStatusSet = new Set<string>(applicationStatuses)
+
+function isApplicationStatus(value: string): value is ApplicationStatusFilter {
+  return applicationStatusSet.has(value)
+}
+
 export async function GET(req: NextRequest) {
   try {
     await requireRole(['screening_team', 'program_director', 'deputy_program_director', 'administrator'])
@@ -150,9 +226,16 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') ?? 'submitted'
     const borderlineOnly = searchParams.get('borderline') === 'true'
 
+    if (!isApplicationStatus(status)) {
+      return NextResponse.json(
+        { error: { message: 'Invalid application status', code: 'INVALID_STATUS' } },
+        { status: 400 }
+      )
+    }
+
     const applications = await prisma.application.findMany({
       where: {
-        status: status as never,
+        status,
         ...(borderlineOnly && { isBorderline: true }),
       },
       include: {
@@ -237,10 +320,11 @@ Create `app/api/screening/vote/route.ts`:
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { requireRole } from '@/lib/clerk'
 import { prisma } from '@/lib/prisma'
-import { sendRejectionEmail, sendShortlistEmail } from '@/lib/resend'
+import { enqueueApplicationOutcomeDispatch } from '@/lib/application-outcome-dispatch'
 
 const voteSchema = z.object({
   applicationId: z.string(),
@@ -266,7 +350,10 @@ export async function POST(req: NextRequest) {
 
     const application = await prisma.application.findUnique({
       where: { id: applicationId },
-      include: { screeningVotes: true },
+      include: {
+        screeningVotes: true,
+        escalationRecord: true,
+      },
     })
 
     if (!application) {
@@ -280,6 +367,13 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    if (application.escalationRecord?.status === 'pending') {
+      return NextResponse.json(
+        { error: { message: 'Application is escalated and cannot be voted on', code: 'APPLICATION_ESCALATED' } },
+        { status: 400 }
+      )
+    }
+
     if (application.isBorderline && !application.pipelineTrack) {
       return NextResponse.json(
         { error: { message: 'Borderline application must be assigned a pipeline track before voting', code: 'BORDERLINE_UNRESOLVED' } },
@@ -287,60 +381,165 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Upsert the vote
-    await prisma.screeningVote.upsert({
-      where: {
-        applicationId_reviewerId: {
-          applicationId,
-          reviewerId: reviewer.userId,
-        },
-      },
-      update: { decision, notes },
-      create: {
-        applicationId,
-        reviewerId: reviewer.userId,
-        decision,
-        notes,
-      },
-    })
-
-    // Update status to under_review if first vote
-    if (application.status === 'submitted') {
-      await prisma.application.update({
-        where: { id: applicationId },
-        data: { status: 'under_review' },
-      })
+    let transactionResult: {
+      consensus: 'approved' | 'rejected' | 'pending'
     }
 
-    // Check for consensus — fetch updated votes
-    const updatedVotes = await prisma.screeningVote.findMany({
-      where: { applicationId },
-    })
+    try {
+      transactionResult = await prisma.$transaction(async (tx) => {
+        const currentApplication = await tx.application.findUnique({
+          where: { id: applicationId },
+          select: {
+            status: true,
+            user: { select: { id: true } },
+          },
+        })
 
-    const allApprove = updatedVotes.length === 2 && updatedVotes.every(v => v.decision === 'approve')
-    const allReject = updatedVotes.length === 2 && updatedVotes.every(v => v.decision === 'reject')
+        if (!currentApplication) {
+          throw new Error('APPLICATION_NOT_FOUND')
+        }
 
-    if (allApprove) {
-      await resolveApplication(applicationId, 'shortlisted', reviewer.userId)
-    } else if (allReject) {
-      await resolveApplication(applicationId, 'rejected', reviewer.userId)
+        if (!['submitted', 'under_review'].includes(currentApplication.status)) {
+          throw new Error('APPLICATION_ALREADY_RESOLVED')
+        }
+
+        const existingVotes = await tx.screeningVote.findMany({
+          where: { applicationId },
+        })
+
+        const reviewerVote = existingVotes.find(v => v.reviewerId === reviewer.userId)
+
+        if (reviewerVote) {
+          throw new Error('VOTE_ALREADY_CAST')
+        }
+
+        if (existingVotes.length >= 2) {
+          throw new Error('MAX_REVIEWERS_REACHED')
+        }
+
+        await tx.screeningVote.create({
+          data: {
+            applicationId,
+            reviewerId: reviewer.userId,
+            decision,
+            notes,
+          },
+        })
+
+        const updatedVotes = await tx.screeningVote.findMany({
+          where: { applicationId },
+        })
+
+        const allApprove = updatedVotes.length === 2 && updatedVotes.every(v => v.decision === 'approve')
+        const allReject = updatedVotes.length === 2 && updatedVotes.every(v => v.decision === 'reject')
+        const outcome = allApprove ? 'shortlisted' : allReject ? 'rejected' : null
+        const consensus = allApprove ? 'approved' : allReject ? 'rejected' : 'pending'
+
+        if (outcome && !currentApplication.user) {
+          throw new Error('CANDIDATE_RECORD_REQUIRED')
+        }
+
+        // Update status to under_review if first vote
+        if (!outcome && currentApplication.status === 'submitted') {
+          await tx.application.update({
+            where: { id: applicationId },
+            data: { status: 'under_review' },
+          })
+        }
+
+        if (outcome) {
+          const transitioned = await tx.application.updateMany({
+            where: {
+              id: applicationId,
+              status: { in: ['submitted', 'under_review'] },
+            },
+            data: { status: outcome },
+          })
+
+          if (transitioned.count === 0) {
+            const resolvedApplication = await tx.application.findUnique({
+              where: { id: applicationId },
+              select: { status: true },
+            })
+
+            if (resolvedApplication?.status !== outcome) {
+              throw new Error('APPLICATION_ALREADY_RESOLVED')
+            }
+          } else {
+            // Writes an idempotent outbox job; a retryable worker sends notifications and email.
+            await enqueueApplicationOutcomeDispatch(tx, {
+              idempotencyKey: `application.${outcome}:${applicationId}`,
+              applicationId,
+              outcome,
+            })
+
+            await tx.auditLog.create({
+              data: {
+                actorId: reviewer.userId,
+                action: `application.${outcome}`,
+                targetType: 'Application',
+                targetId: applicationId,
+                metadata: { outcome },
+              },
+            })
+          }
+        }
+
+        await tx.auditLog.create({
+          data: {
+            actorId: reviewer.userId,
+            action: 'screening.vote_cast',
+            targetType: 'Application',
+            targetId: applicationId,
+            metadata: { decision, consensus },
+          },
+        })
+
+        return { consensus }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    } catch (voteError) {
+      if (voteError instanceof Error && voteError.message === 'VOTE_ALREADY_CAST') {
+        return NextResponse.json(
+          { error: { message: 'Reviewer has already cast a vote for this application', code: 'VOTE_ALREADY_CAST' } },
+          { status: 409 }
+        )
+      }
+
+      if (voteError instanceof Error && voteError.message === 'MAX_REVIEWERS_REACHED') {
+        return NextResponse.json(
+          { error: { message: 'This application already has the required two reviewer votes', code: 'MAX_REVIEWERS_REACHED' } },
+          { status: 409 }
+        )
+      }
+
+      if (voteError instanceof Error && voteError.message === 'APPLICATION_ALREADY_RESOLVED') {
+        return NextResponse.json(
+          { error: { message: 'Application has already been resolved', code: 'APPLICATION_ALREADY_RESOLVED' } },
+          { status: 409 }
+        )
+      }
+
+      if (voteError instanceof Error && voteError.message === 'CANDIDATE_RECORD_REQUIRED') {
+        return NextResponse.json(
+          { error: { message: 'Application candidate record is missing', code: 'CANDIDATE_RECORD_REQUIRED' } },
+          { status: 409 }
+        )
+      }
+
+      if (voteError instanceof Prisma.PrismaClientKnownRequestError && voteError.code === 'P2034') {
+        return NextResponse.json(
+          { error: { message: 'Vote could not be recorded because the reviewer set changed. Please refresh and try again.', code: 'VOTE_CONFLICT' } },
+          { status: 409 }
+        )
+      }
+
+      throw voteError
     }
-
-    // Write audit log
-    await prisma.auditLog.create({
-      data: {
-        actorId: reviewer.userId,
-        action: 'screening.vote_cast',
-        targetType: 'Application',
-        targetId: applicationId,
-        metadata: { decision, consensus: allApprove ? 'approved' : allReject ? 'rejected' : 'pending' },
-      },
-    })
 
     return NextResponse.json({
       data: {
         success: true,
-        consensus: allApprove ? 'approved' : allReject ? 'rejected' : 'pending',
+        consensus: transactionResult.consensus,
       },
     })
   } catch (error) {
@@ -351,56 +550,6 @@ export async function POST(req: NextRequest) {
     console.error('[POST /api/screening/vote]', error)
     return NextResponse.json({ error: { message: 'Internal server error', code: 'INTERNAL_ERROR' } }, { status: 500 })
   }
-}
-
-async function resolveApplication(
-  applicationId: string,
-  outcome: 'shortlisted' | 'rejected',
-  actorId: string
-) {
-  const application = await prisma.application.update({
-    where: { id: applicationId },
-    data: { status: outcome },
-  })
-
-  const userRecord = await prisma.user.findFirst({
-    where: { clerkId: application.userId },
-    select: { email: true, firstName: true },
-  })
-
-  if (!userRecord) return
-
-  if (outcome === 'rejected') {
-    await prisma.notification.create({
-      data: {
-        userId: application.userId,
-        type: 'application_rejected',
-        message: 'Thank you for applying to NIDC. After careful review, we are unable to move your application forward at this time.',
-      },
-    })
-    await sendRejectionEmail({ to: userRecord.email, firstName: userRecord.firstName ?? 'Applicant' })
-  }
-
-  if (outcome === 'shortlisted') {
-    await prisma.notification.create({
-      data: {
-        userId: application.userId,
-        type: 'application_shortlisted',
-        message: 'Congratulations — your application has been shortlisted. You will receive interview details shortly.',
-      },
-    })
-    await sendShortlistEmail({ to: userRecord.email, firstName: userRecord.firstName ?? 'Applicant' })
-  }
-
-  await prisma.auditLog.create({
-    data: {
-      actorId,
-      action: `application.${outcome}`,
-      targetType: 'Application',
-      targetId: applicationId,
-      metadata: { outcome },
-    },
-  })
 }
 ```
 
@@ -415,7 +564,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireRole } from '@/lib/clerk'
 import { prisma } from '@/lib/prisma'
-import { sendRejectionEmail } from '@/lib/resend'
+import { enqueueApplicationOutcomeDispatch } from '@/lib/application-outcome-dispatch'
 
 const borderlineSchema = z.object({
   applicationId: z.string(),
@@ -425,7 +574,7 @@ const borderlineSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const reviewer = await requireRole(['screening_team', 'program_director', 'deputy_program_director'])
+    const reviewer = await requireRole('screening_team')
 
     const body = await req.json()
     const parsed = borderlineSchema.safeParse(body)
@@ -439,61 +588,58 @@ export async function POST(req: NextRequest) {
 
     const { applicationId, decision, notes } = parsed.data
 
-    const application = await prisma.application.findUnique({
-      where: { id: applicationId },
-    })
-
-    if (!application) {
-      return NextResponse.json({ error: { message: 'Application not found', code: 'NOT_FOUND' } }, { status: 404 })
-    }
-
-    if (!application.isBorderline) {
-      return NextResponse.json(
-        { error: { message: 'Application is not borderline', code: 'NOT_BORDERLINE' } },
-        { status: 400 }
-      )
-    }
-
-    if (decision === 'reject') {
-      await prisma.application.update({
+    await prisma.$transaction(async (tx) => {
+      const application = await tx.application.findUnique({
         where: { id: applicationId },
-        data: { status: 'rejected' },
-      })
-
-      const userRecord = await prisma.user.findFirst({
-        where: { clerkId: application.userId },
-        select: { email: true, firstName: true },
-      })
-
-      if (userRecord) {
-        await prisma.notification.create({
-          data: {
-            userId: application.userId,
-            type: 'application_rejected',
-            message: 'Thank you for applying to NIDC. After careful review, we are unable to move your application forward at this time.',
-          },
-        })
-        await sendRejectionEmail({ to: userRecord.email, firstName: userRecord.firstName ?? 'Applicant' })
-      }
-    } else {
-      await prisma.application.update({
-        where: { id: applicationId },
-        data: {
-          pipelineTrack: decision,
-          isBorderline: false,
-          status: 'submitted',
+        select: {
+          isBorderline: true,
+          user: { select: { id: true } },
         },
       })
-    }
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: reviewer.userId,
-        action: 'screening.borderline_resolved',
-        targetType: 'Application',
-        targetId: applicationId,
-        metadata: { decision, notes },
-      },
+      if (!application) {
+        throw new Error('APPLICATION_NOT_FOUND')
+      }
+
+      if (!application.isBorderline) {
+        throw new Error('NOT_BORDERLINE')
+      }
+
+      if (!application.user) {
+        throw new Error('CANDIDATE_RECORD_REQUIRED')
+      }
+
+      if (decision === 'reject') {
+        await tx.application.update({
+          where: { id: applicationId },
+          data: { status: 'rejected' },
+        })
+
+        await enqueueApplicationOutcomeDispatch(tx, {
+          idempotencyKey: `application.rejected:${applicationId}`,
+          applicationId,
+          outcome: 'rejected',
+        })
+      } else {
+        await tx.application.update({
+          where: { id: applicationId },
+          data: {
+            pipelineTrack: decision,
+            isBorderline: false,
+            status: 'submitted',
+          },
+        })
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: reviewer.userId,
+          action: 'screening.borderline_resolved',
+          targetType: 'Application',
+          targetId: applicationId,
+          metadata: { decision, notes },
+        },
+      })
     })
 
     return NextResponse.json({ data: { success: true, decision } })
@@ -501,6 +647,9 @@ export async function POST(req: NextRequest) {
     if (error instanceof Error) {
       if (error.message === 'UNAUTHENTICATED') return NextResponse.json({ error: { message: 'Unauthenticated', code: 'UNAUTHENTICATED' } }, { status: 401 })
       if (error.message === 'UNAUTHORISED') return NextResponse.json({ error: { message: 'Unauthorised', code: 'UNAUTHORISED' } }, { status: 403 })
+      if (error.message === 'APPLICATION_NOT_FOUND') return NextResponse.json({ error: { message: 'Application not found', code: 'NOT_FOUND' } }, { status: 404 })
+      if (error.message === 'NOT_BORDERLINE') return NextResponse.json({ error: { message: 'Application is not borderline', code: 'NOT_BORDERLINE' } }, { status: 400 })
+      if (error.message === 'CANDIDATE_RECORD_REQUIRED') return NextResponse.json({ error: { message: 'Application candidate record is missing', code: 'CANDIDATE_RECORD_REQUIRED' } }, { status: 409 })
     }
     console.error('[POST /api/screening/borderline]', error)
     return NextResponse.json({ error: { message: 'Internal server error', code: 'INTERNAL_ERROR' } }, { status: 500 })
@@ -519,7 +668,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireRole } from '@/lib/clerk'
 import { prisma } from '@/lib/prisma'
-import { sendRejectionEmail, sendShortlistEmail } from '@/lib/resend'
+import { enqueueApplicationOutcomeDispatch } from '@/lib/application-outcome-dispatch'
 
 const resolveSchema = z.object({
   applicationId: z.string(),
@@ -543,20 +692,30 @@ export async function POST(req: NextRequest) {
 
     const { applicationId, decision, notes } = parsed.data
 
-    const escalation = await prisma.escalationRecord.findUnique({
-      where: { applicationId },
-    })
-
-    if (!escalation || escalation.status !== 'pending') {
-      return NextResponse.json(
-        { error: { message: 'No pending escalation found', code: 'NOT_FOUND' } },
-        { status: 404 }
-      )
-    }
-
     const outcome = decision === 'approve' ? 'shortlisted' : 'rejected'
 
     await prisma.$transaction(async (tx) => {
+      const escalation = await tx.escalationRecord.findUnique({
+        where: { applicationId },
+        select: {
+          status: true,
+          target: true,
+          application: {
+            select: {
+              user: { select: { id: true } },
+            },
+          },
+        },
+      })
+
+      if (!escalation || escalation.status !== 'pending' || escalation.target !== actor.role) {
+        throw new Error('NO_PENDING_ESCALATION')
+      }
+
+      if (!escalation.application.user) {
+        throw new Error('CANDIDATE_RECORD_REQUIRED')
+      }
+
       await tx.escalationRecord.update({
         where: { applicationId },
         data: {
@@ -572,49 +731,22 @@ export async function POST(req: NextRequest) {
         where: { id: applicationId },
         data: { status: outcome },
       })
-    })
 
-    const application = await prisma.application.findUnique({
-      where: { id: applicationId },
-    })
-
-    if (application) {
-      const userRecord = await prisma.user.findFirst({
-        where: { clerkId: application.userId },
-        select: { email: true, firstName: true },
+      await enqueueApplicationOutcomeDispatch(tx, {
+        idempotencyKey: `application.${outcome}:${applicationId}`,
+        applicationId,
+        outcome,
       })
 
-      if (userRecord) {
-        if (outcome === 'rejected') {
-          await prisma.notification.create({
-            data: {
-              userId: application.userId,
-              type: 'application_rejected',
-              message: 'Thank you for applying to NIDC. After careful review, we are unable to move your application forward at this time.',
-            },
-          })
-          await sendRejectionEmail({ to: userRecord.email, firstName: userRecord.firstName ?? 'Applicant' })
-        } else {
-          await prisma.notification.create({
-            data: {
-              userId: application.userId,
-              type: 'application_shortlisted',
-              message: 'Congratulations — your application has been shortlisted. You will receive interview details shortly.',
-            },
-          })
-          await sendShortlistEmail({ to: userRecord.email, firstName: userRecord.firstName ?? 'Applicant' })
-        }
-      }
-    }
-
-    await prisma.auditLog.create({
-      data: {
-        actorId: actor.userId,
-        action: 'escalation.resolved',
-        targetType: 'Application',
-        targetId: applicationId,
-        metadata: { decision, outcome },
-      },
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.userId,
+          action: 'escalation.resolved',
+          targetType: 'Application',
+          targetId: applicationId,
+          metadata: { decision, outcome },
+        },
+      })
     })
 
     return NextResponse.json({ data: { success: true, outcome } })
@@ -622,6 +754,8 @@ export async function POST(req: NextRequest) {
     if (error instanceof Error) {
       if (error.message === 'UNAUTHENTICATED') return NextResponse.json({ error: { message: 'Unauthenticated', code: 'UNAUTHENTICATED' } }, { status: 401 })
       if (error.message === 'UNAUTHORISED') return NextResponse.json({ error: { message: 'Unauthorised', code: 'UNAUTHORISED' } }, { status: 403 })
+      if (error.message === 'NO_PENDING_ESCALATION') return NextResponse.json({ error: { message: 'No pending escalation found', code: 'NOT_FOUND' } }, { status: 404 })
+      if (error.message === 'CANDIDATE_RECORD_REQUIRED') return NextResponse.json({ error: { message: 'Application candidate record is missing', code: 'CANDIDATE_RECORD_REQUIRED' } }, { status: 409 })
     }
     console.error('[POST /api/screening/escalation/resolve]', error)
     return NextResponse.json({ error: { message: 'Internal server error', code: 'INTERNAL_ERROR' } }, { status: 500 })
@@ -635,7 +769,7 @@ Update `lib/escalation.ts` with the full escalation logic:
 
 ```ts
 import { prisma } from '@/lib/prisma'
-import { sendEscalationEmail } from '@/lib/resend'
+import { enqueueEscalationNotificationDispatch } from '@/lib/escalation-notification-dispatch'
 
 export async function runEscalationCheck() {
   const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000)
@@ -645,7 +779,6 @@ export async function runEscalationCheck() {
   const applicationsToEscalate = await prisma.application.findMany({
     where: {
       status: 'under_review',
-      escalationRecord: null,
       screeningVotes: {
         some: { createdAt: { lte: fortyEightHoursAgo } },
       },
@@ -669,29 +802,49 @@ export async function runEscalationCheck() {
 
     if (!programDirector) continue
 
-    await prisma.escalationRecord.create({
-      data: {
-        applicationId: application.id,
+    await prisma.$transaction(async (tx) => {
+      await tx.escalationRecord.createMany({
+        data: {
+          applicationId: application.id,
+          target: 'program_director',
+          escalatedAt: new Date(),
+        },
+        skipDuplicates: true,
+      })
+
+      const escalation = await tx.escalationRecord.findUnique({
+        where: { applicationId: application.id },
+        select: {
+          id: true,
+          applicationId: true,
+          status: true,
+          target: true,
+        },
+      })
+
+      if (!escalation || escalation.status !== 'pending' || escalation.target !== 'program_director') {
+        return
+      }
+
+      const notificationClaimed = await enqueueEscalationNotificationDispatch(tx, {
+        idempotencyKey: `escalation.program_director:${escalation.id}`,
+        escalationRecordId: escalation.id,
+        applicationId: escalation.applicationId,
         target: 'program_director',
-        escalatedAt: new Date(),
-      },
-    })
+        targetUserId: programDirector.clerkId,
+      })
 
-    await sendEscalationEmail({
-      to: programDirector.email,
-      firstName: programDirector.firstName ?? 'Program Director',
-      applicationId: application.id,
-      target: 'program_director',
-    })
+      if (!notificationClaimed) return
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: 'system',
-        action: 'escalation.created',
-        targetType: 'Application',
-        targetId: application.id,
-        metadata: { target: 'program_director', reason: '48_hour_conflict' },
-      },
+      await tx.auditLog.create({
+        data: {
+          actorId: 'system',
+          action: 'escalation.created',
+          targetType: 'Application',
+          targetId: application.id,
+          metadata: { target: 'program_director', reason: '48_hour_conflict' },
+        },
+      })
     })
   }
 
@@ -711,26 +864,38 @@ export async function runEscalationCheck() {
 
     if (!deputy) continue
 
-    await prisma.escalationRecord.update({
-      where: { id: escalation.id },
-      data: { target: 'deputy_program_director', escalatedAt: new Date() },
-    })
+    await prisma.$transaction(async (tx) => {
+      const reassigned = await tx.escalationRecord.updateMany({
+        where: {
+          id: escalation.id,
+          status: 'pending',
+          target: 'program_director',
+          escalatedAt: { lte: twentyFourHoursAgo },
+        },
+        data: { target: 'deputy_program_director', escalatedAt: new Date() },
+      })
 
-    await sendEscalationEmail({
-      to: deputy.email,
-      firstName: deputy.firstName ?? 'Deputy Program Director',
-      applicationId: escalation.applicationId,
-      target: 'deputy_program_director',
-    })
+      if (reassigned.count === 0) return
 
-    await prisma.auditLog.create({
-      data: {
-        actorId: 'system',
-        action: 'escalation.reassigned',
-        targetType: 'EscalationRecord',
-        targetId: escalation.id,
-        metadata: { target: 'deputy_program_director', reason: '24_hour_no_response' },
-      },
+      const notificationClaimed = await enqueueEscalationNotificationDispatch(tx, {
+        idempotencyKey: `escalation.deputy_program_director:${escalation.id}`,
+        escalationRecordId: escalation.id,
+        applicationId: escalation.applicationId,
+        target: 'deputy_program_director',
+        targetUserId: deputy.clerkId,
+      })
+
+      if (!notificationClaimed) return
+
+      await tx.auditLog.create({
+        data: {
+          actorId: 'system',
+          action: 'escalation.reassigned',
+          targetType: 'EscalationRecord',
+          targetId: escalation.id,
+          metadata: { target: 'deputy_program_director', reason: '24_hour_no_response' },
+        },
+      })
     })
   }
 }
@@ -747,9 +912,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runEscalationCheck } from '@/lib/escalation'
 
 export async function POST(req: NextRequest) {
-  const secret = req.headers.get('x-cron-secret')
+  const authorization = req.headers.get('authorization')
 
-  if (secret !== process.env.CRON_SECRET) {
+  if (authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
@@ -763,7 +928,57 @@ export async function POST(req: NextRequest) {
 }
 ```
 
-**4.2 — Configure Vercel Cron Jobs**
+**4.2 — `POST /api/cron/application-outcome-dispatch`**
+
+Create `app/api/cron/application-outcome-dispatch/route.ts`:
+
+```ts
+import { NextRequest, NextResponse } from 'next/server'
+import { dispatchPendingApplicationOutcomes } from '@/lib/application-outcome-dispatch'
+
+export async function POST(req: NextRequest) {
+  const authorization = req.headers.get('authorization')
+
+  if (authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  }
+
+  try {
+    const result = await dispatchPendingApplicationOutcomes()
+    return NextResponse.json({ data: { success: true, ...result } })
+  } catch (error) {
+    console.error('[POST /api/cron/application-outcome-dispatch]', error)
+    return NextResponse.json({ error: { message: 'Internal server error', code: 'INTERNAL_ERROR' } }, { status: 500 })
+  }
+}
+```
+
+**4.3 — `POST /api/cron/escalation-notification-dispatch`**
+
+Create `app/api/cron/escalation-notification-dispatch/route.ts`:
+
+```ts
+import { NextRequest, NextResponse } from 'next/server'
+import { dispatchPendingEscalationNotifications } from '@/lib/escalation-notification-dispatch'
+
+export async function POST(req: NextRequest) {
+  const authorization = req.headers.get('authorization')
+
+  if (authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  }
+
+  try {
+    const result = await dispatchPendingEscalationNotifications()
+    return NextResponse.json({ data: { success: true, ...result } })
+  } catch (error) {
+    console.error('[POST /api/cron/escalation-notification-dispatch]', error)
+    return NextResponse.json({ error: { message: 'Internal server error', code: 'INTERNAL_ERROR' } }, { status: 500 })
+  }
+}
+```
+
+**4.4 — Configure Vercel Cron Jobs**
 
 Create `vercel.json` at the project root:
 
@@ -773,12 +988,20 @@ Create `vercel.json` at the project root:
     {
       "path": "/api/cron/escalation-check",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/application-outcome-dispatch",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/escalation-notification-dispatch",
+      "schedule": "*/10 * * * *"
     }
   ]
 }
 ```
 
-This runs the escalation check every hour.
+This runs the escalation check every hour and the retryable dispatch workers every 10 minutes.
 
 Add `CRON_SECRET` to `.env.local` and Vercel environment variables — generate a random string:
 
@@ -791,45 +1014,71 @@ openssl rand -base64 32
 Add the following email functions to `lib/resend.ts`:
 
 ```ts
+const htmlEscapes: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => htmlEscapes[char])
+}
+
 export async function sendRejectionEmail({
   to,
   firstName,
+  idempotencyKey,
 }: {
   to: string
   firstName: string
+  idempotencyKey?: string
 }) {
-  await resend.emails.send({
-    from: 'NIDC <no-reply@nidc.org>',
-    to,
-    subject: 'Update on your NIDC application',
-    html: `
-      <p>Hi ${firstName},</p>
-      <p>Thank you for taking the time to apply to NIDC.</p>
-      <p>After careful review of your application, we are unable to move forward with your application at this time.</p>
-      <p>We appreciate your interest in NIDC and encourage you to continue developing yourself.</p>
-      <p>The NIDC Team</p>
-    `,
-  })
+  const escapedFirstName = escapeHtml(firstName)
+
+  await resend.emails.send(
+    {
+      from: 'NIDC <no-reply@nidc.org>',
+      to,
+      subject: 'Update on your NIDC application',
+      html: `
+        <p>Hi ${escapedFirstName},</p>
+        <p>Thank you for taking the time to apply to NIDC.</p>
+        <p>After careful review of your application, we are unable to move forward with your application at this time.</p>
+        <p>We appreciate your interest in NIDC and encourage you to continue developing yourself.</p>
+        <p>The NIDC Team</p>
+      `,
+    },
+    idempotencyKey ? { idempotencyKey } : undefined
+  )
 }
 
 export async function sendShortlistEmail({
   to,
   firstName,
+  idempotencyKey,
 }: {
   to: string
   firstName: string
+  idempotencyKey?: string
 }) {
-  await resend.emails.send({
-    from: 'NIDC <no-reply@nidc.org>',
-    to,
-    subject: 'You have been shortlisted — NIDC',
-    html: `
-      <p>Hi ${firstName},</p>
-      <p>Congratulations — your NIDC application has been reviewed and you have been shortlisted.</p>
-      <p>You will receive further details about the interview process shortly. Please log in to your dashboard to stay updated.</p>
-      <p>The NIDC Team</p>
-    `,
-  })
+  const escapedFirstName = escapeHtml(firstName)
+
+  await resend.emails.send(
+    {
+      from: 'NIDC <no-reply@nidc.org>',
+      to,
+      subject: 'You have been shortlisted — NIDC',
+      html: `
+        <p>Hi ${escapedFirstName},</p>
+        <p>Congratulations — your NIDC application has been reviewed and you have been shortlisted.</p>
+        <p>You will receive further details about the interview process shortly. Please log in to your dashboard to stay updated.</p>
+        <p>The NIDC Team</p>
+      `,
+    },
+    idempotencyKey ? { idempotencyKey } : undefined
+  )
 }
 
 export async function sendEscalationEmail({
@@ -837,24 +1086,327 @@ export async function sendEscalationEmail({
   firstName,
   applicationId,
   target,
+  idempotencyKey,
 }: {
   to: string
   firstName: string
   applicationId: string
   target: string
+  idempotencyKey?: string
 }) {
-  await resend.emails.send({
-    from: 'NIDC <no-reply@nidc.org>',
-    to,
-    subject: 'Action required — Application escalation',
-    html: `
-      <p>Hi ${firstName},</p>
-      <p>An application requires your decision. The screening team was unable to reach consensus within the required timeframe.</p>
-      <p>Application ID: ${applicationId}</p>
-      <p>Please log in to your dashboard to review and resolve this application.</p>
-      <p>The NIDC System</p>
-    `,
+  const escapedFirstName = escapeHtml(firstName)
+
+  await resend.emails.send(
+    {
+      from: 'NIDC <no-reply@nidc.org>',
+      to,
+      subject: 'Action required — Application escalation',
+      html: `
+        <p>Hi ${escapedFirstName},</p>
+        <p>An application requires your decision. The screening team was unable to reach consensus within the required timeframe.</p>
+        <p>Application ID: ${applicationId}</p>
+        <p>Please log in to your dashboard to review and resolve this application.</p>
+        <p>The NIDC System</p>
+      `,
+    },
+    idempotencyKey ? { idempotencyKey } : undefined
+  )
+}
+```
+
+**5.1 — Build application outcome dispatch helper**
+
+Create `lib/application-outcome-dispatch.ts`:
+
+```ts
+import type { Prisma } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
+import { sendRejectionEmail, sendShortlistEmail } from '@/lib/resend'
+
+type ApplicationOutcome = 'rejected' | 'shortlisted'
+
+const outcomeCopy = {
+  rejected: {
+    notificationType: 'application_rejected',
+    message: 'Thank you for applying to NIDC. After careful review, we are unable to move your application forward at this time.',
+  },
+  shortlisted: {
+    notificationType: 'application_shortlisted',
+    message: 'Congratulations — your application has been shortlisted. You will receive interview details shortly.',
+  },
+} satisfies Record<ApplicationOutcome, { notificationType: string; message: string }>
+
+export async function enqueueApplicationOutcomeDispatch(
+  tx: Prisma.TransactionClient,
+  {
+    idempotencyKey,
+    applicationId,
+    outcome,
+  }: {
+    idempotencyKey: string
+    applicationId: string
+    outcome: ApplicationOutcome
+  }
+) {
+  await tx.applicationOutcomeDispatch.upsert({
+    where: { idempotencyKey },
+    update: { updatedAt: new Date() },
+    create: {
+      idempotencyKey,
+      applicationId,
+      outcome,
+    },
   })
+}
+
+export async function dispatchPendingApplicationOutcomes() {
+  const jobs = await prisma.applicationOutcomeDispatch.findMany({
+    where: {
+      status: { in: ['pending', 'failed'] },
+      attempts: { lt: 5 },
+    },
+    include: {
+      application: {
+        include: { user: true },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 25,
+  })
+
+  let dispatched = 0
+  let failed = 0
+  let skipped = 0
+
+  for (const job of jobs) {
+    const claimed = await prisma.applicationOutcomeDispatch.updateMany({
+      where: {
+        id: job.id,
+        status: { in: ['pending', 'failed'] },
+      },
+      data: {
+        status: 'processing',
+        attempts: { increment: 1 },
+        lastError: null,
+      },
+    })
+
+    if (claimed.count === 0) {
+      skipped += 1
+      continue
+    }
+
+    try {
+      const candidate = job.application.user
+      const copy = outcomeCopy[job.outcome as ApplicationOutcome]
+
+      if (!candidate) throw new Error('CANDIDATE_RECORD_REQUIRED')
+      if (!copy) throw new Error('UNSUPPORTED_OUTCOME')
+
+      const notificationId = `${job.id}:notification`
+      const existingNotification = await prisma.notification.findUnique({
+        where: { id: notificationId },
+        select: { id: true },
+      })
+
+      if (!existingNotification) {
+        await prisma.notification.create({
+          data: {
+            id: notificationId,
+            userId: job.application.userId,
+            type: copy.notificationType,
+            message: copy.message,
+          },
+        })
+      }
+
+      if (!job.emailSentAt) {
+        if (job.outcome === 'rejected') {
+          await sendRejectionEmail({
+            to: candidate.email,
+            firstName: candidate.firstName ?? 'Applicant',
+            idempotencyKey: `${job.idempotencyKey}:email`,
+          })
+        } else {
+          await sendShortlistEmail({
+            to: candidate.email,
+            firstName: candidate.firstName ?? 'Applicant',
+            idempotencyKey: `${job.idempotencyKey}:email`,
+          })
+        }
+      }
+
+      await prisma.applicationOutcomeDispatch.update({
+        where: { id: job.id },
+        data: {
+          status: 'sent',
+          notificationCreatedAt: job.notificationCreatedAt ?? new Date(),
+          emailSentAt: job.emailSentAt ?? new Date(),
+          dispatchedAt: new Date(),
+        },
+      })
+
+      dispatched += 1
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown dispatch error'
+
+      await prisma.applicationOutcomeDispatch.update({
+        where: { id: job.id },
+        data: {
+          status: 'failed',
+          lastError: message,
+        },
+      })
+
+      failed += 1
+    }
+  }
+
+  return { dispatched, failed, skipped }
+}
+```
+
+**5.2 — Build escalation notification dispatch helper**
+
+Create `lib/escalation-notification-dispatch.ts`:
+
+```ts
+import type { EscalationTarget, Prisma } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
+import { sendEscalationEmail } from '@/lib/resend'
+
+const escalationTargetLabels = {
+  program_director: 'Program Director',
+  deputy_program_director: 'Deputy Program Director',
+} satisfies Record<EscalationTarget, string>
+
+const escalationNotificationMessage =
+  'An application requires your decision. The screening team was unable to reach consensus within the required timeframe.'
+
+export async function enqueueEscalationNotificationDispatch(
+  tx: Prisma.TransactionClient,
+  {
+    idempotencyKey,
+    escalationRecordId,
+    applicationId,
+    target,
+    targetUserId,
+  }: {
+    idempotencyKey: string
+    escalationRecordId: string
+    applicationId: string
+    target: EscalationTarget
+    targetUserId: string
+  }
+) {
+  const result = await tx.escalationNotificationDispatch.createMany({
+    data: {
+      idempotencyKey,
+      escalationRecordId,
+      applicationId,
+      target,
+      targetUserId,
+    },
+    skipDuplicates: true,
+  })
+
+  return result.count === 1
+}
+
+export async function dispatchPendingEscalationNotifications() {
+  const jobs = await prisma.escalationNotificationDispatch.findMany({
+    where: {
+      status: { in: ['pending', 'failed'] },
+      attempts: { lt: 5 },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 25,
+  })
+
+  let dispatched = 0
+  let failed = 0
+  let skipped = 0
+
+  for (const job of jobs) {
+    const claimed = await prisma.escalationNotificationDispatch.updateMany({
+      where: {
+        id: job.id,
+        status: { in: ['pending', 'failed'] },
+      },
+      data: {
+        status: 'processing',
+        attempts: { increment: 1 },
+        lastError: null,
+      },
+    })
+
+    if (claimed.count === 0) {
+      skipped += 1
+      continue
+    }
+
+    try {
+      const targetUser = await prisma.user.findUnique({
+        where: { clerkId: job.targetUserId },
+        select: { email: true, firstName: true },
+      })
+
+      if (!targetUser) throw new Error('ESCALATION_TARGET_USER_NOT_FOUND')
+
+      const notificationId = `${job.id}:notification`
+      const existingNotification = await prisma.notification.findUnique({
+        where: { id: notificationId },
+        select: { id: true },
+      })
+
+      if (!existingNotification) {
+        await prisma.notification.create({
+          data: {
+            id: notificationId,
+            userId: job.targetUserId,
+            type: 'application_escalated',
+            message: escalationNotificationMessage,
+          },
+        })
+      }
+
+      if (!job.emailSentAt) {
+        await sendEscalationEmail({
+          to: targetUser.email,
+          firstName: targetUser.firstName ?? escalationTargetLabels[job.target],
+          applicationId: job.applicationId,
+          target: job.target,
+          idempotencyKey: `${job.idempotencyKey}:email`,
+        })
+      }
+
+      await prisma.escalationNotificationDispatch.update({
+        where: { id: job.id },
+        data: {
+          status: 'sent',
+          notificationCreatedAt: job.notificationCreatedAt ?? new Date(),
+          emailSentAt: job.emailSentAt ?? new Date(),
+          dispatchedAt: new Date(),
+        },
+      })
+
+      dispatched += 1
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown dispatch error'
+
+      await prisma.escalationNotificationDispatch.update({
+        where: { id: job.id },
+        data: {
+          status: 'failed',
+          lastError: message,
+        },
+      })
+
+      failed += 1
+    }
+  }
+
+  return { dispatched, failed, skipped }
 }
 ```
 
@@ -934,6 +1486,7 @@ export async function GET() {
 - `CRON_SECRET` environment variable added to `.env.local` and Vercel
 - At least one user with `screening_team` role exists — create via admin invite flow
 - At least one user with `program_director` role exists — create via admin invite flow
+- At least one user with `deputy_program_director` role exists — create via admin invite flow
 - At least one submitted application exists for testing — complete an application as an applicant first
 
 ---
@@ -945,7 +1498,7 @@ Before marking this spec complete and moving to Feature Spec 05, verify every it
 ### Database
 - [ ] Migration `add_screening_workflow` applied cleanly
 - [ ] `npx prisma validate` passes with no errors
-- [ ] `ScreeningVote` and `EscalationRecord` tables exist in Supabase
+- [ ] `ScreeningVote`, `EscalationRecord`, `ApplicationOutcomeDispatch`, and `EscalationNotificationDispatch` tables exist in Supabase
 
 ### Consensus Voting
 - [ ] A screening team member can cast an approve vote on a submitted application
@@ -955,6 +1508,7 @@ Before marking this spec complete and moving to Feature Spec 05, verify every it
 - [ ] Two reject votes → application status changes to `rejected`
 - [ ] A rejected candidate receives an in-platform notification and a rejection email
 - [ ] A shortlisted candidate receives an in-platform notification and a shortlist email
+- [ ] Outcome notification and email delivery is dispatched from `ApplicationOutcomeDispatch`, not directly from decision routes
 - [ ] A screening team member cannot vote on an application not in `submitted` or `under_review` status
 
 ### Borderline Review
@@ -964,11 +1518,13 @@ Before marking this spec complete and moving to Feature Spec 05, verify every it
 - [ ] Rejecting a borderline application sets status to `rejected` and notifies the candidate
 
 ### Escalation
-- [ ] The escalation cron endpoint returns `401` without the correct `CRON_SECRET` header
+- [ ] The escalation cron endpoint returns `401` without `Authorization: Bearer ${CRON_SECRET}`
+- [ ] The outcome dispatch cron endpoint returns `401` without `Authorization: Bearer ${CRON_SECRET}`
+- [ ] The escalation notification dispatch cron endpoint returns `401` without `Authorization: Bearer ${CRON_SECRET}`
 - [ ] Applications with conflicting votes older than 48 hours get an `EscalationRecord` created
-- [ ] The Program Director receives an escalation email when an application is escalated
+- [ ] The Program Director receives an escalation notification and email from `EscalationNotificationDispatch`
 - [ ] Escalations older than 24 hours are reassigned to the Deputy Program Director
-- [ ] The Deputy Program Director receives an escalation email on reassignment
+- [ ] The Deputy Program Director receives an escalation notification and email from `EscalationNotificationDispatch`
 - [ ] The Program Director or Deputy Program Director can resolve an escalation with approve or reject
 - [ ] Resolving an escalation updates both the `EscalationRecord` and the `Application` status
 
