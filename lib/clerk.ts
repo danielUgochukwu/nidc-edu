@@ -33,21 +33,29 @@ async function ensureApplicantDefaults(user: AuthenticatedUser) {
   }
 
   const email = user.email;
+  let shouldAssignApplicantRole = true;
 
   try {
-    if (email) {
-      await prisma.$transaction(async (tx) => {
-        const existingUser = await tx.user.findFirst({
-          where: {
-            OR: [{ clerkId: user.userId }, { email }],
-          },
-          select: {
-            id: true,
-            clerkId: true,
-            role: true,
-          },
-        });
+    await prisma.$transaction(async (tx) => {
+      const existingUser = await tx.user.findFirst({
+        where: email
+          ? {
+              OR: [{ clerkId: user.userId }, { email }],
+            }
+          : { clerkId: user.userId },
+        select: {
+          id: true,
+          clerkId: true,
+          role: true,
+        },
+      });
 
+      if (existingUser && existingUser.role !== "applicant") {
+        shouldAssignApplicantRole = false;
+        return;
+      }
+
+      if (email) {
         if (existingUser) {
           await tx.user.update({
             where: { id: existingUser.id },
@@ -74,7 +82,7 @@ async function ensureApplicantDefaults(user: AuthenticatedUser) {
         await tx.auditLog.create({
           data: {
             actorId: user.userId,
-            action: "user.created",
+            action: existingUser ? "user.updated" : "user.created",
             targetType: "User",
             targetId: user.userId,
             metadata: {
@@ -85,7 +93,11 @@ async function ensureApplicantDefaults(user: AuthenticatedUser) {
             },
           },
         });
-      });
+      }
+    });
+
+    if (!shouldAssignApplicantRole) {
+      return null;
     }
 
     await setUserRole(user.userId, "applicant");

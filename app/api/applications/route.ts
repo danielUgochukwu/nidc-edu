@@ -27,12 +27,21 @@ export async function POST() {
       );
     }
 
-    const existing = await prisma.application.findFirst({
-      where: { userId: user.userId, cohortId: activeCohort.id },
+    const existing = await prisma.application.findUnique({
+      where: { userId: user.userId },
+      select: { id: true },
     });
 
     if (existing) {
-      return NextResponse.json({ data: existing }, { status: 200 });
+      return NextResponse.json(
+        {
+          error: {
+            message: "An application already exists for this user",
+            code: "APPLICATION_ALREADY_EXISTS",
+          },
+        },
+        { status: 409 },
+      );
     }
 
     let application: Application;
