@@ -47,3 +47,24 @@ export async function sendInviteEmail({
     `,
   });
 }
+
+export async function sendApplicationSubmittedEmail({
+  to,
+  firstName,
+}: {
+  to: string;
+  firstName: string;
+}) {
+  await getResendClient().emails.send({
+    from: "NIDC <no-reply@nidc.org>",
+    to,
+    subject: "Your NIDC application has been received",
+    html: `
+      <p>Hi ${firstName},</p>
+      <p>Thank you for applying to NIDC. Your application has been received and is now under review.</p>
+      <p>We will contact you with the outcome of your application. This process may take some time as we review all applications carefully.</p>
+      <p>In the meantime, you can log in to your dashboard to view your application status.</p>
+      <p>The NIDC Team</p>
+    `,
+  });
+}

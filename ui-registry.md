@@ -99,3 +99,43 @@ Last updated: 2026-07-13
 
 **Pattern notes:**
 Public form controls use dark filled inputs with elevated borders and lime focus rings. FAQ active state is signaled by border color and an expanded answer, not color alone.
+
+### Applicant Application Form
+
+File: components/forms/ApplicationForm.tsx
+Last updated: 2026-07-17
+
+| Property         | Class |
+| ---------------- | ----- |
+| Background       | `bg-surface-primary`, panels `bg-surface-secondary` |
+| Border           | `border border-surface-elevated`, active review `border-brand-lime` |
+| Border radius    | `rounded-sm` inputs/options, `rounded-md` panels/buttons |
+| Text — primary   | `text-text-primary`, `text-text-on-light` on lime buttons |
+| Text — secondary | `text-text-secondary` |
+| Spacing          | `p-6`, `gap-5`, `gap-6`, `mt-8` |
+| Hover state      | `hover:bg-brand-green`, `hover:bg-surface-elevated` |
+| Shadow           | `shadow-card` |
+| Accent usage     | `bg-brand-lime`, `text-text-accent`, `focus:ring-brand-lime` |
+
+**Pattern notes:**
+Applicant forms use dark filled controls on a secondary surface, with lime reserved for the active step, primary action, and final review border. Repeated assessment options are bordered rows rather than nested cards.
+
+### Applicant Dashboard Cards
+
+File: app/(dashboard)/applicant/page.tsx
+Last updated: 2026-07-17
+
+| Property         | Class |
+| ---------------- | ----- |
+| Background       | `bg-surface-primary`, cards `bg-surface-secondary` |
+| Border           | `border border-surface-elevated`, success `border-brand-lime` |
+| Border radius    | `rounded-md` |
+| Text — primary   | `text-text-primary`, `text-text-on-light` on CTA |
+| Text — secondary | `text-text-secondary` |
+| Spacing          | `p-6`, `gap-6`, `mt-6` |
+| Hover state      | `hover:bg-brand-green` |
+| Shadow           | `shadow-card` |
+| Accent usage     | `text-text-accent`, `bg-brand-lime` for CTA |
+
+**Pattern notes:**
+Dashboard status cards follow the existing dark dashboard shell. The primary CTA remains lime, while progress and notification details sit on `bg-surface-primary` inserts separated by elevated borders.

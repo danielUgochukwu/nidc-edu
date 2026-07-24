@@ -55,14 +55,14 @@ Every folder in the codebase owns a specific responsibility. Nothing outside tha
 │       ├── webhooks/
 │       │   ├── clerk/          # Handles Clerk user.created webhook — assigns default role
 │       │   └── paystack/       # Handles Paystack payment.success webhook — writes donation record
-│       ├── applications/       # CRUD for application records and form progress
-│       ├── assessments/        # Diagnostic assessment submission and pipeline assignment logic
+│       ├── applications/       # Draft creation, resume, step saves, assessment submission, and final application submission
+│       ├── assessments/        # Diagnostic assessment questions exposed to applicants without correct answers
 │       ├── screening/          # Consensus votes, escalation triggers, shortlist actions
 │       ├── interviews/         # Interview link storage, distribution, reminder scheduling
 │       ├── mentorship/         # Mentor matching, session logging, milestone updates
 │       ├── donations/          # Donation initiation and Paystack reference generation
 │       ├── grants/             # Grant record management and milestone tracking
-│       ├── notifications/      # In-platform notification creation and retrieval
+│       ├── notifications/      # In-platform notification retrieval for the authenticated user
 │       └── cron/               # Cron job endpoints — escalation checks, reminder dispatch
 │
 ├── prisma/

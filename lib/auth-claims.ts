@@ -22,17 +22,28 @@ type RoleClaims = {
   role?: unknown;
 };
 
+function normalizeRole(role: unknown): Role | null {
+  if (typeof role !== "string" || !validRoleSet.has(role)) return null;
+
+  return role as Role;
+}
+
+export function getRoleFromMetadata(metadata: unknown): Role | null {
+  if (!metadata || typeof metadata !== "object") return null;
+
+  const record = metadata as { role?: unknown };
+  return normalizeRole(record.role);
+}
+
 export function getRoleFromSessionClaims(
   sessionClaims: unknown,
 ): Role | null {
   const claims = sessionClaims as RoleClaims | null | undefined;
-  const role =
-    claims?.publicMetadata?.role ??
-    claims?.public_metadata?.role ??
-    claims?.metadata?.role ??
-    claims?.role;
 
-  if (typeof role !== "string" || !validRoleSet.has(role)) return null;
-
-  return role as Role;
+  return (
+    getRoleFromMetadata(claims?.publicMetadata) ??
+    getRoleFromMetadata(claims?.public_metadata) ??
+    getRoleFromMetadata(claims?.metadata) ??
+    normalizeRole(claims?.role)
+  );
 }
